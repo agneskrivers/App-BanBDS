@@ -1,9 +1,24 @@
-// prettier-ignore
 {
-  "extends": "@tsconfig/react-native/tsconfig.json",     /* Recommended React Native TSConfig base */
-  "compilerOptions": {
-    /* Visit https://aka.ms/tsconfig.json to read more about this file */
-    /* Completeness */
-    "skipLibCheck": true                                 /* Skip type checking all .d.ts files. */
-  }
+	"extends": "@tsconfig/react-native/tsconfig.json" /* Recommended React Native TSConfig base */,
+	"compilerOptions": {
+		/* Visit https://aka.ms/tsconfig.json to read more about this file */
+		/* Completeness */
+		"skipLibCheck": true /* Skip type checking all .d.ts files. */,
+		"baseUrl": ".",
+		"paths": {
+			"@interfaces": ["./interfaces/index.ts"],
+
+			"@assets/*": ["./assets/images/*"],
+			"@components": ["./src/components/index.ts"],
+			"@components/*": ["./src/components/*"],
+			"@configs": ["./src/configs/index.ts"],
+			"@context": ["./src/context/index.tsx"],
+			"@helpers": ["./src/helpers/index.ts"],
+			"@helpers/*": ["./src/helpers/*"],
+			"@navigation/*": ["./src/navigation/*"],
+			"@screens": ["./src/screens/index.ts"],
+			"@screens/*": ["./src/screens/*"],
+			"@utils": ["./src/utils/index.ts"]
+		}
+	}
 }
