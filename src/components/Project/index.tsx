@@ -5,6 +5,7 @@ import FontAwesome from 'react-native-vector-icons/FontAwesome';
 import { Box, Image, Badge, Text, HStack, Icon, Skeleton } from 'native-base';
 
 // Configs
+import { host } from '@configs';
 
 // Helpers
 import { getName } from '@helpers';
@@ -66,7 +67,7 @@ const Index: FunctionComponent<Props> = props => {
 					<Image
 						borderRadius="md"
 						source={{
-							uri: image, // TODO: Fix Uri Image
+							uri: `${host}/images/projects/${image}`,
 						}}
 						height={size ? 200 : 160}
 						width="100%"

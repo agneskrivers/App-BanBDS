@@ -2,6 +2,9 @@ import React, { FunctionComponent } from 'react';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { Box, Text, HStack, Image, Icon, Skeleton } from 'native-base';
 
+// Configs
+import { host } from '@configs';
+
 // Helpers
 import { getName, getPricePerAcreage } from '@helpers';
 
@@ -62,7 +65,7 @@ const Index: FunctionComponent<Props> = ({ data, isLoaded }) => {
 					<Image
 						resizeMode="cover"
 						source={{
-							uri: image,
+							uri: `${host}/images/posts/${image}`,
 						}}
 						width="100%"
 						height="100%"
