@@ -64,6 +64,7 @@ export interface IProjectCompact extends ProjectCompact {
 	image: string;
 	company: string | null;
 	address: string;
+	id: string;
 }
 export interface IProjectInfo extends ProjectInfo {
 	address: string;

@@ -8,7 +8,8 @@ type PostCreateKey =
 	| 'views'
 	| 'editor'
 	| 'broker'
-	| 'location';
+	| 'location'
+	| 'poster';
 type PostCompactKey =
 	| 'title'
 	| 'prices'
@@ -28,7 +29,7 @@ type PostInfoKey =
 	| 'status'
 	| 'location'
 	| 'postID';
-type MyPostInfoKey = Exclude<PostInfoKey, 'location'>;
+type MyPostInfoKey = Exclude<PostInfoKey, 'location' | 'poster' | 'status'>;
 type PostUpdateKey =
 	| 'postID'
 	| 'userID'
@@ -98,7 +99,6 @@ export type IPostSort = Partial<Record<PostSortKey, IPostSortValue>>;
 
 // Export Interfaces
 export interface IPoster {
-	brokerID: number;
 	name: string;
 	phoneNumber: string[];
 }
@@ -115,8 +115,10 @@ export interface IPostLocation {
 }
 export interface IPostCreate extends PostCreate {
 	location: PostCreateLocation;
+	poster: Omit<IPoster, 'brokerID'>;
 }
 export interface IPostCompact extends PostCompact {
+	id: string;
 	image: string;
 	address: string;
 	isVideo: boolean;
@@ -144,6 +146,5 @@ export interface IPostUpdate extends PostUpdate {
 	removeImages?: string[];
 }
 export interface IMyPostInfo extends MyPostInfo {
-	poster: Omit<IPoster, 'brokerID'>;
 	time: number;
 }
