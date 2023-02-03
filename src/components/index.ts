@@ -3,6 +3,7 @@ export { default as FooterFlatListComponent } from './FooterFlatList';
 export { default as FormComponent } from './Form';
 export { default as HeaderComponent } from './Header';
 export { default as LoadingComponent } from './Loading';
+export { default as MapComponent } from './Map';
 export { default as NewsComponent } from './News';
 export { default as NoDataComponent } from './NoData';
 export { default as PostComponent } from './Post';
