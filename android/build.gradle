@@ -2,6 +2,8 @@
 
 buildscript {
     ext {
+        googlePlayServicesIidVersion = "17.0.0"
+
         buildToolsVersion = "31.0.0"
         minSdkVersion = 21
         compileSdkVersion = 31
@@ -19,6 +21,7 @@ buildscript {
     repositories {
         google()
         mavenCentral()
+        jcenter()
     }
     dependencies {
         classpath("com.android.tools.build:gradle:7.2.1")
@@ -26,6 +29,7 @@ buildscript {
         classpath("de.undercouch:gradle-download-task:5.0.1")
         // NOTE: Do not place your application dependencies here; they belong
         // in the individual module build.gradle files
+        classpath ('com.android.tools.build:gradle:2.3.0')
     }
 }
 

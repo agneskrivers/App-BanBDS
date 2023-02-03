@@ -8,6 +8,7 @@ project.ext.vectoricons = [
 ]
 
 apply from: "../../node_modules/react-native-vector-icons/fonts.gradle"
+apply from: project(':react-native-config').projectDir.getPath() + "/dotenv.gradle"
 
 /**
  * The react.gradle file registers a task for each build variant (e.g. bundleDebugJsAndAssets
@@ -255,6 +256,10 @@ android {
 }
 
 dependencies {
+    implementation fileTree(dir: "libs", include: ["*.jar"])
+    implementation "com.android.support:appcompat-v7:${rootProject.ext.supportLibVersion}"
+    implementation "com.facebook.react:react-native:+"  // From node_modules
+    
     implementation fileTree(dir: "libs", include: ["*.jar"])
 
     //noinspection GradleDynamicVersion

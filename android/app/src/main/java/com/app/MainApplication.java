@@ -4,6 +4,7 @@ import android.app.Application;
 import android.content.Context;
 import com.facebook.react.PackageList;
 import com.facebook.react.ReactApplication;
+import com.reactnativecommunity.webview.RNCWebViewPackage;
 import com.facebook.react.ReactInstanceManager;
 import com.facebook.react.ReactNativeHost;
 import com.facebook.react.ReactPackage;
@@ -27,7 +28,7 @@ public class MainApplication extends Application implements ReactApplication {
           @SuppressWarnings("UnnecessaryLocalVariable")
           List<ReactPackage> packages = new PackageList(this).getPackages();
           // Packages that cannot be autolinked yet can be added manually here, for example:
-          // packages.add(new MyReactNativePackage());
+          // packages.add(new RNCWebViewPackage());
           return packages;
         }
 
@@ -54,7 +55,7 @@ public class MainApplication extends Application implements ReactApplication {
     super.onCreate();
     // If you opted-in for the New Architecture, we enable the TurboModule system
     ReactFeatureFlags.useTurboModules = BuildConfig.IS_NEW_ARCHITECTURE_ENABLED;
-    SoLoader.init(this, /* native exopackage */ false);
+    SoLoader.init(this, /* native exo package */ false);
     initializeFlipper(this, getReactNativeHost().getReactInstanceManager());
   }
 
