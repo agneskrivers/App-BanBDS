@@ -1,4 +1,4 @@
-import React, { FunctionComponent } from 'react';
+import React, { FunctionComponent, useContext } from 'react';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { Pressable, Center, Text, Image, Icon, Box } from 'native-base';
 import type { BottomTabNavigationEventMap } from '@react-navigation/bottom-tabs';
@@ -9,6 +9,9 @@ import type {
 
 // Assets
 import LocationPNG from '@assets/images/location.png';
+
+// Context
+import { Context } from '@context';
 
 // Interfaces
 import type { IBottomTabNames } from '@interfaces';
@@ -29,8 +32,17 @@ const Index: FunctionComponent<Props> = props => {
 	const stateNavigation = navigation.getState();
 	const routeName = stateNavigation.routes[stateNavigation.index].name;
 
+	// Hooks
+	const { user } = useContext(Context);
+
 	// Handles
 	const handlePress = () => {
+		if ((name === 'Form' || name === 'Account') && !user)
+			return navigation.navigate('Login');
+
+		if (name === 'Form')
+			return navigation.navigate('Form', { isRequest: false });
+
 		return navigation.navigate(name);
 	};
 
