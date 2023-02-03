@@ -1,21 +1,17 @@
-import React, { FunctionComponent, useState, useEffect } from 'react';
-import { StackNavigationProp } from '@react-navigation/stack';
+import React, {
+	FunctionComponent,
+	useState,
+	useEffect,
+	useCallback,
+	useContext,
+} from 'react';
 import {
 	NativeSyntheticEvent,
 	NativeScrollEvent,
 	RefreshControl,
 	StyleSheet,
 } from 'react-native';
-import {
-	Box,
-	Text,
-	Pressable,
-	Image,
-	Center,
-	FlatList,
-	Skeleton,
-	useToast,
-} from 'native-base';
+import { Box, Text, Pressable, Image, FlatList, Skeleton } from 'native-base';
 
 // Components
 import {
@@ -27,23 +23,36 @@ import {
 } from '@components';
 
 // Configs
-import { ListNewsCompactDefault, HotNewsCompactDefault } from '@configs';
+import { ListNewsCompactDefault } from '@configs';
+
+// Context
+import { Context } from '@context';
+
+// Helpers
+import { storages, renewTokenDevice } from '@helpers';
+
+// Services
+import services from '@services';
 
 // Interfaces
 import type {
 	INewsCompact,
 	IHotNewsCompact,
-	IStackParams,
 	ICompositeNavigationBottomTabs,
 } from '@interfaces';
+
+// Interfaces
+interface DataStorage {
+	hot: IHotNewsCompact | null;
+	news: INewsCompact[];
+	pages: number;
+	region: string;
+}
 
 // Props
 interface Props {
 	navigation: ICompositeNavigationBottomTabs<'News'>;
 }
-
-// Demo
-import { hotNewsCompact, newsCompact } from '../../../demo';
 
 const Index: FunctionComponent<Props> = ({ navigation }) => {
 	// States
@@ -52,6 +61,7 @@ const Index: FunctionComponent<Props> = ({ navigation }) => {
 	const [isScroll, setIsScroll] = useState<boolean>(false);
 	const [isRefresh, setIsRefresh] = useState<boolean>(false);
 	const [isLoadMore, setIsLoadMore] = useState<boolean>(false);
+	const [isLoading, setIsLoading] = useState<boolean>(false);
 
 	const [hotNews, setHotNews] = useState<IHotNewsCompact | null>(null);
 	const [news, setNews] = useState<INewsCompact[] | null>(null);
@@ -59,52 +69,360 @@ const Index: FunctionComponent<Props> = ({ navigation }) => {
 	const [pages, setPages] = useState<number | null>(null);
 	const [page, setPage] = useState<number>(1);
 
+	const [region, setRegion] = useState<string>();
+
+	// Hooks
+	const { location, onNotification, isNetwork, onLocation } =
+		useContext(Context);
+
+	const getDataStorage = useCallback(async (province: string) => {
+		try {
+			const data = await storages.get.obj<DataStorage>('news');
+
+			if (!data || data.region !== province) throw new Error();
+
+			setIsLoaded(true);
+			setHotNews(data.hot);
+			setNews(data.news);
+			setPages(data.pages);
+		} catch (_) {
+			setIsLoaded(true);
+			setHotNews(null);
+			setNews([]);
+			setPages(0);
+		}
+	}, []);
+
+	// Effects
 	useEffect(() => {
-		const getData = () => {
-			let list: string[] = [];
+		const controller = new AbortController();
 
-			let data: INewsCompact[] = [];
+		const getData = async (
+			signal: AbortSignal,
+			tokenDevice?: string,
+		): Promise<void> => {
+			let token: string | null | undefined = tokenDevice;
 
-			for (let i = 0; i < 10; i++) {
-				const generateID = (): string => {
-					const id = Math.floor(
-						Math.random() * Math.pow(10, 6),
-					).toString();
-
-					if (list.indexOf(id) < 0) {
-						list = [...list, id];
-
-						return id;
-					}
-
-					return generateID();
-				};
-
-				const id = generateID();
-
-				data = [...data, { ...newsCompact, id }];
+			if (!token) {
+				token = await storages.get.str('device');
 			}
 
-			setTimeout(() => {
-				setNews(data);
-				setHotNews(hotNewsCompact);
+			if (!token) {
+				token = await renewTokenDevice(signal);
+			}
 
-				setIsLoaded(true);
-				setPages(0);
-			}, 2000);
+			if (!token) throw new Error('Error');
+
+			const data = await services.news.shortlist(
+				signal,
+				token,
+				location,
+				1,
+			);
+
+			if (!data || data === 'BadRequest') throw new Error('Error');
+
+			if (data === 'UnauthorizedDevice') {
+				if (tokenDevice) throw new Error();
+
+				const renewToken = await renewTokenDevice(signal);
+
+				if (!renewToken) throw new Error('Error');
+
+				return getData(signal, renewToken);
+			}
+
+			const dataStorage: DataStorage = {
+				...data,
+				region: location,
+			};
+
+			await storages.set('news', JSON.stringify(dataStorage));
+
+			setIsLoaded(true);
+			setRegion(location);
+			setHotNews(data.hot);
+			setNews(data.news);
+			setPages(data.pages);
 		};
 
-		getData();
-	}, []);
+		if (!isLoaded) {
+			if (isNetwork) {
+				getData(controller.signal).catch(() =>
+					getDataStorage(location),
+				);
+			} else {
+				getDataStorage(location);
+			}
+		}
+
+		return () => controller.abort();
+	}, [isNetwork, isLoaded, location, onNotification, getDataStorage]);
 	useEffect(() => {
-		const getData = async () => {
-			setTimeout(() => setIsRefresh(false), 2000);
+		const controller = new AbortController();
+
+		const getData = async (
+			signal: AbortSignal,
+			tokenDevice?: string,
+		): Promise<void> => {
+			let token: string | null | undefined = tokenDevice;
+
+			if (!token) {
+				token = await storages.get.str('device');
+			}
+
+			if (!token) {
+				token = await renewTokenDevice(signal);
+			}
+
+			if (!token) throw new Error();
+
+			const data = await services.news.shortlist(
+				signal,
+				token,
+				location,
+				1,
+			);
+
+			if (!data) throw new Error();
+
+			if (data === 'UnauthorizedDevice') {
+				if (tokenDevice) throw new Error();
+
+				const renewToken = await renewTokenDevice(signal);
+
+				if (!renewToken) throw new Error('Error');
+
+				return getData(signal, renewToken);
+			}
+
+			if (data === 'BadRequest') {
+				setIsRefresh(false);
+
+				onNotification(
+					'toast-screen-news-refresh-bad-request',
+					'Vui lòng thử lại!',
+					'Có lỗi xảy ra',
+					'warning',
+				);
+
+				return;
+			}
+
+			setIsRefresh(false);
+			setHotNews(data.hot);
+			setNews(data.news);
+			setPages(data.pages);
 		};
 
 		if (isRefresh) {
-			getData();
+			if (isNetwork) {
+				getData(controller.signal).catch(() => {
+					setIsRefresh(false);
+
+					onNotification(
+						'toast-screen-news-error',
+						'Vui lòng thử lại!',
+						'Máy chủ bị lỗi',
+						'error',
+					);
+				});
+			} else {
+				setIsRefresh(false);
+
+				onNotification(
+					'toast-screen-news-no-network',
+					'Vui lòng kết nối mạng!',
+					'Không có kết nối mạng',
+					'warning',
+				);
+			}
 		}
-	}, [isRefresh]);
+
+		return () => controller.abort();
+	}, [isNetwork, isRefresh, location, onNotification]);
+	useEffect(() => {
+		const controller = new AbortController();
+
+		const getData = async (
+			signal: AbortSignal,
+			tokenDevice?: string,
+		): Promise<void> => {
+			let token: string | null | undefined = tokenDevice;
+
+			if (!token) {
+				token = await storages.get.str('device');
+			}
+
+			if (!token) {
+				token = await renewTokenDevice(signal);
+			}
+
+			if (!token) throw new Error();
+
+			const data = await services.news.shortlist(
+				signal,
+				token,
+				location,
+				1,
+			);
+
+			if (!data) throw new Error();
+
+			if (data === 'UnauthorizedDevice') {
+				if (tokenDevice) throw new Error();
+
+				const renewToken = await renewTokenDevice(signal);
+
+				if (!renewToken) throw new Error('Error');
+
+				return getData(signal, renewToken);
+			}
+
+			if (data === 'BadRequest') {
+				setIsLoading(false);
+
+				onNotification(
+					'toast-screen-news-loading-bad-request',
+					'Vui lòng thử lại!',
+					'Có lỗi xảy ra',
+					'warning',
+				);
+
+				return;
+			}
+
+			setRegion(location);
+			setIsLoading(false);
+			setHotNews(data.hot);
+			setNews(data.news);
+			setPages(data.pages);
+		};
+
+		if (isLoading && region !== location) {
+			if (isNetwork) {
+				getData(controller.signal).catch(() => {
+					setIsLoading(false);
+					onLocation(region ? region : 'HN');
+
+					onNotification(
+						'toast-screen-news-error',
+						'Vui lòng thử lại!',
+						'Máy chủ bị lỗi',
+						'error',
+					);
+				});
+			} else {
+				setIsLoading(false);
+				onLocation(region ? region : 'HN');
+
+				onNotification(
+					'toast-screen-news-no-network',
+					'Vui lòng kết nối mạng!',
+					'Không có kết nối mạng',
+					'warning',
+				);
+			}
+		}
+
+		return () => controller.abort();
+	}, [
+		isNetwork,
+		isLoading,
+		location,
+		region,
+		onNotification,
+		getDataStorage,
+		onLocation,
+	]);
+	useEffect(() => {
+		const controller = new AbortController();
+
+		const getData = async (
+			signal: AbortSignal,
+			tokenDevice?: string,
+		): Promise<void> => {
+			let token: string | null | undefined = tokenDevice;
+
+			if (!token) {
+				token = await storages.get.str('device');
+			}
+
+			if (!token) {
+				token = await renewTokenDevice(signal);
+			}
+
+			if (!token) throw new Error();
+
+			const data = await services.news.shortlist(
+				signal,
+				token,
+				location,
+				page + 1,
+			);
+
+			if (!data) throw new Error();
+
+			if (data === 'UnauthorizedDevice') {
+				if (tokenDevice) throw new Error();
+
+				const renewToken = await renewTokenDevice(signal);
+
+				if (!renewToken) throw new Error('Error');
+
+				return getData(signal, renewToken);
+			}
+
+			if (data === 'BadRequest') {
+				setIsLoadMore(false);
+
+				onNotification(
+					'toast-screen-news-loading-bad-request',
+					'Vui lòng thử lại!',
+					'Có lỗi xảy ra',
+					'warning',
+				);
+
+				return;
+			}
+
+			setIsLoadMore(false);
+			setNews(data.news);
+		};
+
+		if (isLoadMore) {
+			if (isNetwork) {
+				getData(controller.signal)
+					.then(() => setPage(prePage => prePage + 1))
+					.catch(() => {
+						setIsLoadMore(false);
+
+						onNotification(
+							'toast-screen-news-error',
+							'Vui lòng thử lại!',
+							'Máy chủ bị lỗi',
+							'error',
+						);
+					});
+			} else {
+				setIsLoadMore(false);
+
+				onNotification(
+					'toast-screen-news-no-network',
+					'Vui lòng kết nối mạng!',
+					'Không có kết nối mạng',
+					'warning',
+				);
+			}
+		}
+
+		return () => controller.abort();
+	}, [isLoadMore, location, page, onNotification, isNetwork]);
+	useEffect(() => {
+		if (region !== undefined && region !== location && !isLoading) {
+			setIsLoading(true);
+		}
+	}, [location, region, isLoading]);
 
 	// Handle
 	const handleRefresh = () => setIsRefresh(true);
@@ -121,13 +439,14 @@ const Index: FunctionComponent<Props> = ({ navigation }) => {
 		setIsScroll(true);
 	};
 
-	const handlePressNews = () => navigation.navigate('NewsInfo');
+	const handlePressNews = (id: string) =>
+		navigation.navigate('NewsInfo', { id });
 
 	// Elements
 	const HeaderFlatListLoaded = () =>
 		!hotNews ? null : (
 			<Box my={5} px={4}>
-				<Pressable>
+				<Pressable onPress={() => handlePressNews(hotNews.id)}>
 					<Box
 						pb={2}
 						bg="white"
@@ -136,7 +455,11 @@ const Index: FunctionComponent<Props> = ({ navigation }) => {
 						borderTopLeftRadius={15}
 						borderTopRightRadius={15}
 					>
-						<Skeleton h={200} borderRadius="xl" isLoaded={isLoaded}>
+						<Skeleton
+							h={200}
+							borderRadius="xl"
+							isLoaded={isLoaded && !isLoading && !isRefresh}
+						>
 							<Image
 								borderRadius="xl"
 								source={{
@@ -152,7 +475,7 @@ const Index: FunctionComponent<Props> = ({ navigation }) => {
 							<Skeleton.Text
 								lines={2}
 								fontSize={17}
-								isLoaded={isLoaded}
+								isLoaded={isLoaded && !isLoading && !isRefresh}
 							>
 								<Text
 									fontWeight="bold"
@@ -168,7 +491,7 @@ const Index: FunctionComponent<Props> = ({ navigation }) => {
 								lines={4}
 								fontSize={14}
 								lineHeight={24}
-								isLoaded={isLoaded}
+								isLoaded={isLoaded && !isLoading && !isRefresh}
 							>
 								<Text
 									fontSize={14}
@@ -241,10 +564,14 @@ const Index: FunctionComponent<Props> = ({ navigation }) => {
 				keyExtractor={({ id }) => id}
 				contentContainerStyle={styles.container}
 				renderItem={({ item, index }) => (
-					<Pressable px={4} my={4} onPress={handlePressNews}>
+					<Pressable
+						px={4}
+						my={4}
+						onPress={() => handlePressNews(item.id)}
+					>
 						<NewsComponent
 							data={item}
-							isLoaded={isLoaded}
+							isLoaded={isLoaded && !isLoading && !isRefresh}
 							isFirst={hotNews === null && index === 0}
 						/>
 					</Pressable>
@@ -256,7 +583,7 @@ const Index: FunctionComponent<Props> = ({ navigation }) => {
 					/>
 				}
 				ListEmptyComponent={
-					isLoaded && !isLoadMore && !isRefresh ? (
+					isLoaded && !isRefresh && !isLoading ? (
 						<NoDataComponent message="Không có tin tức" />
 					) : (
 						<LoadingComponent />

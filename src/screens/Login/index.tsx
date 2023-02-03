@@ -6,7 +6,12 @@ import React, {
 } from 'react';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { InAppBrowser } from 'react-native-inappbrowser-reborn';
-import { Keyboard, TouchableWithoutFeedback, Linking } from 'react-native';
+import {
+	Keyboard,
+	TouchableWithoutFeedback,
+	Linking,
+	Platform,
+} from 'react-native';
 import {
 	Box,
 	Icon,
@@ -18,20 +23,30 @@ import {
 	Input,
 	HStack,
 	Link,
-	Spinner,
 } from 'native-base';
 
 // Assets
 import LogoDark from '@assets/images/logo-dark.png';
 
+// Configs
+import { LinkDefault, WebsiteNameDefault } from '@configs';
+
 // Context
 import { Context } from '@context';
 
 // Helpers
-import { isValidPhoneNumber } from '@helpers';
+import {
+	isValidPhoneNumber,
+	storages,
+	renewTokenDevice,
+	formatPhoneNumber,
+} from '@helpers';
+
+// Services
+import services from '@services';
 
 // Interfaces
-import type { ICompositeNavigationStacks } from '@interfaces';
+import type { ICompositeNavigationStacks, ILinkJSON } from '@interfaces';
 
 // Props
 interface Props {
@@ -43,6 +58,8 @@ const Index: FunctionComponent<Props> = ({ navigation }) => {
 	const [isValid, setIsValid] = useState<boolean>();
 	const [isLoading, setIsLoading] = useState<boolean>(false);
 
+	const [links, setLinks] = useState<ILinkJSON | null>(null);
+
 	const [phoneNumber, setPhoneNumber] = useState<string>();
 	const [phoneNumberTemp, setPhoneNumberTemp] = useState<string>();
 
@@ -51,7 +68,18 @@ const Index: FunctionComponent<Props> = ({ navigation }) => {
 
 	// Effects
 	useEffect(() => {
-		const id = setTimeout(() => setPhoneNumber(phoneNumberTemp), 500);
+		const getData = async () => {
+			const data = await storages.get.obj<ILinkJSON>('links');
+
+			if (data) {
+				setLinks(data);
+			}
+		};
+
+		getData();
+	}, []);
+	useEffect(() => {
+		const id = setTimeout(() => setPhoneNumber(phoneNumberTemp), 100);
 
 		() => clearTimeout(id);
 	}, [phoneNumberTemp]);
@@ -70,26 +98,177 @@ const Index: FunctionComponent<Props> = ({ navigation }) => {
 		}
 	}, [phoneNumber, isValid]);
 	useEffect(() => {
-		const getData = async (phone: string) => {
-			setTimeout(() => {
+		const controller = new AbortController();
+
+		const getData = async (
+			signal: AbortSignal,
+			phone: string,
+			tokenDevice?: string,
+		): Promise<void> => {
+			const now = Date.now();
+
+			const date = new Date(now).getDate();
+			const month = new Date(now).getMonth() + 1;
+			const year = new Date(now).getFullYear();
+
+			const day = `${date}/${month}/${year}`;
+
+			const keyFailed = `failed-${phone}`;
+			const keyRenew = `renew-${phone}`;
+
+			const checkFailed = await storages.get.str(keyFailed);
+			const checkRenew = await storages.get.str(keyRenew);
+
+			if (checkRenew && day === checkRenew) {
+				onNotification(
+					'toast-screen-login-check-renew',
+					'Số điện thoại đã gửi quá nhiều Mã Xác Nhận.Vui lòng quay lại vào ngày mai!',
+					formatPhoneNumber(phone),
+					'warning',
+				);
+
 				setIsLoading(false);
-				navigation.push('Confirm', {
-					phoneNumber: phone,
-				});
-			}, 2000);
+				setPhoneNumberTemp('');
+
+				setTimeout(() => navigation.navigate('Home'), 1000);
+
+				return;
+			}
+
+			if (checkFailed && !isNaN(parseInt(checkFailed, 10))) {
+				const timeFailed = parseInt(checkFailed, 10);
+
+				const renameTime =
+					30 - Math.floor((now - timeFailed) / 1000 / 60);
+
+				if (renameTime > 0) {
+					onNotification(
+						'toast-screen-login-check-failed',
+						`Số điện thoại đã nhập sai quá nhiều. Vui lòng thử lại sau ${renameTime} phút nữa!`,
+						formatPhoneNumber(phone),
+						'warning',
+					);
+
+					setIsLoading(false);
+					setPhoneNumberTemp('');
+
+					return;
+				}
+			}
+
+			let token: string | null | undefined = tokenDevice;
+
+			if (!token) {
+				token = await storages.get.str('device');
+			}
+
+			if (!token) {
+				token = await renewTokenDevice(signal);
+			}
+
+			if (!token) throw new Error();
+
+			const result = await services.login.send(signal, token, phone);
+
+			if (!result) throw new Error();
+
+			if (result === 'UnauthorizedDevice') {
+				if (tokenDevice) throw new Error();
+
+				const renewToken = await renewTokenDevice(signal);
+
+				if (!renewToken) throw new Error();
+
+				return getData(signal, phone, renewToken);
+			}
+
+			if (result === 'BadRequest') {
+				onNotification(
+					'toast-screen-login-result-bad-request',
+					'Vui lòng kiểm tra lại số điện thoại hoặc thử lại!',
+					'Gửi Mã Xác Nhận Bị Lỗi',
+					'warning',
+				);
+
+				setIsLoading(false);
+
+				return;
+			}
+
+			if (result === 'Failed') {
+				if (checkFailed) {
+					await storages.remove(keyFailed);
+				}
+
+				await storages.set(keyFailed, Date.now().toString());
+
+				onNotification(
+					'toast-screen-login-result-failed',
+					'Số điện thoại đã nhập sai quá nhiều. Vui lòng thử lại sau 30 phút nữa!',
+					formatPhoneNumber(phone),
+					'warning',
+				);
+
+				setIsLoading(false);
+				setPhoneNumberTemp('');
+
+				return;
+			}
+
+			if (result === 'Renew') {
+				if (checkRenew) {
+					await storages.remove(keyRenew);
+				}
+
+				await storages.set(keyRenew, day);
+
+				onNotification(
+					'toast-screen-login-result-renew',
+					'Số điện thoại đã gửi quá nhiều Mã Xác Nhận.Vui lòng quay lại vào ngày mai!',
+					formatPhoneNumber(phone),
+					'warning',
+				);
+
+				setIsLoading(false);
+				setPhoneNumberTemp('');
+
+				setTimeout(() => navigation.navigate('Home'), 1000);
+
+				return;
+			}
+
+			setIsLoading(false);
+
+			navigation.navigate('Confirm', {
+				phoneNumber: phone,
+			});
 		};
 
 		if (isLoading && phoneNumber && phoneNumber.length === 10 && isValid) {
-			getData(phoneNumber);
+			getData(controller.signal, phoneNumber).catch(() => {
+				onNotification(
+					'toast-screen-login-error',
+					'Máy chủ bị lỗi',
+					'Vui lòng thử lại sau!',
+					'error',
+				);
+
+				setPhoneNumberTemp('');
+				setIsLoading(false);
+
+				return;
+			});
 		}
-	}, [isLoading, phoneNumber, isValid, navigation]);
+
+		return () => controller.abort();
+	}, [isLoading, isValid, phoneNumber, navigation, onNotification]);
 
 	// Handles
 	const handlePressTerms = async () => {
-		const url = 'https://claimether.com';
+		const uri = links && links.Rules ? links.Rules : LinkDefault;
 
 		if (await InAppBrowser.isAvailable()) {
-			await InAppBrowser.open(url, {
+			await InAppBrowser.open(uri, {
 				// iOS Properties
 				dismissButtonStyle: 'cancel',
 				preferredControlTintColor: '#58a6ff',
@@ -101,7 +280,6 @@ const Index: FunctionComponent<Props> = ({ navigation }) => {
 				enableBarCollapsing: false,
 
 				// Android Properties
-
 				showTitle: true,
 				secondaryToolbarColor: 'black',
 				navigationBarColor: 'black',
@@ -120,7 +298,7 @@ const Index: FunctionComponent<Props> = ({ navigation }) => {
 				},
 			});
 		} else {
-			Linking.openURL(url);
+			Linking.openURL(uri);
 		}
 	};
 	const handlePressCleanInput = () => setPhoneNumberTemp('');
@@ -149,7 +327,7 @@ const Index: FunctionComponent<Props> = ({ navigation }) => {
 				backgroundColor="white"
 				justifyContent="space-between"
 			>
-				<Box>
+				<Box mt={Platform.OS === 'android' ? 2 : 0}>
 					<Pressable mb={5} onPress={handlePressGoBack}>
 						<Icon
 							as={MaterialCommunityIcons}
@@ -252,19 +430,21 @@ const Index: FunctionComponent<Props> = ({ navigation }) => {
 						height={45}
 						width="100%"
 						mt={4}
-						// disabled={!isValid || isLoading}
+						disabled={
+							!isValid ||
+							isLoading ||
+							(phoneNumber === undefined &&
+								phoneNumberTemp === undefined)
+						}
 						onPress={handlePressNext}
+						isLoading={isLoading}
 					>
-						{isLoading ? (
-							<Spinner size="sm" color="white" />
-						) : (
-							'Tiếp tục'
-						)}
+						Tiếp tục
 					</Button>
 				</Box>
 				<HStack
 					px="10"
-					py="3"
+					py={Platform.OS === 'android' ? 5 : 3}
 					alignItems="center"
 					flexWrap="wrap"
 					justifyContent="center"
@@ -293,7 +473,11 @@ const Index: FunctionComponent<Props> = ({ navigation }) => {
 					<Link
 						color="blue.500"
 						fontWeight="bold"
-						href="https://google.com"
+						href={
+							links && links.HomePage
+								? links.HomePage
+								: LinkDefault
+						}
 						_text={{
 							color: 'blue.600',
 							fontWeight: 'bold',
@@ -301,7 +485,9 @@ const Index: FunctionComponent<Props> = ({ navigation }) => {
 						}}
 						p={0}
 					>
-						BanBds.vn
+						{links && links.WebsiteName
+							? links.WebsiteName
+							: WebsiteNameDefault}
 					</Link>
 				</HStack>
 			</Box>

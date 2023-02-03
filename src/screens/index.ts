@@ -13,5 +13,6 @@ export { default as PostsScreen } from './Posts';
 export { default as ProfileScreen } from './Profile';
 export { default as ProjectScreen } from './Project';
 export { default as ProjectsScreen } from './Projects';
+export { default as SplashScreen } from './Splash';
 export { default as UserScreen } from './User';
 export { default as ZoningScreen } from './Zoning';

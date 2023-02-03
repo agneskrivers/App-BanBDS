@@ -1,4 +1,9 @@
-import React, { FunctionComponent, useState } from 'react';
+import React, {
+	FunctionComponent,
+	useContext,
+	useState,
+	useEffect,
+} from 'react';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import DateTimePicker, {
@@ -9,12 +14,10 @@ import { format } from 'date-fns';
 import { RouteProp } from '@react-navigation/native';
 import {
 	Platform,
-	TextInput,
 	StatusBar,
 	TouchableWithoutFeedback,
 	Keyboard,
-	StyleSheet,
-	View,
+	Alert,
 } from 'react-native';
 import {
 	Text,
@@ -28,24 +31,33 @@ import {
 	ScrollView,
 	Input,
 	Modal,
-	useToast,
-	Stack,
 	KeyboardAvoidingView,
 	Spinner,
+	Center,
 } from 'native-base';
-import { launchImageLibrary } from 'react-native-image-picker';
+import { launchImageLibrary, Asset } from 'react-native-image-picker';
 
 // Assets
 import AvatarDefault from '@assets/images/avatar-default.png';
+
+// Config
+import { host } from '@configs';
 
 // Context
 import { Context } from '@context';
 
 // Helpers
-import { formatPhoneNumber } from '@helpers';
+import { formatPhoneNumber, renewTokenDevice, storages } from '@helpers';
+
+// Services
+import services from '@services';
 
 // Interfaces
-import type { ICompositeNavigationStacks, IStackParams } from '@interfaces';
+import type {
+	ICompositeNavigationStacks,
+	IStackParams,
+	IUserCreate,
+} from '@interfaces';
 
 // Props
 interface Props {
@@ -55,25 +67,340 @@ interface Props {
 
 const Index: FunctionComponent<Props> = ({ navigation, route }) => {
 	// Constants
-	const OneYearMilliseconds = 364 * 24 * 60 * 60 * 1000;
+	const FourYearMilliseconds = 364 * 24 * 60 * 60 * 1000;
 
 	// States
-	const [isUploading, setIsUploading] = useState<boolean>(false);
 	const [isCreating, setIsCreating] = useState<boolean>(false);
 
 	const [avatar, setAvatar] = useState<string>();
+	const [avatarTemp, setAvatarTemp] = useState<Asset>();
 	const [fullName, setFullName] = useState<string>();
 	const [birthday, setBirthday] = useState<number>();
+	const [birthdayTemp, setBirthdayTemp] = useState<number>();
 	const [address, setAddress] = useState<string>();
 
 	const [isModalDate, setIsModalDate] = useState<boolean>(false);
 
 	// Hooks
+	const { onNotification, onLogin } = useContext(Context);
+
+	// Effects
+	useEffect(() => {
+		const controller = new AbortController();
+
+		const getData = async (
+			signal: AbortSignal,
+			image: Asset,
+			tokenDevice?: string,
+		): Promise<void> => {
+			const { fileName, uri, type } = image;
+
+			if (!fileName || !uri || !type) {
+				setAvatarTemp(undefined);
+
+				onNotification(
+					'toast-screen-user-no-image',
+					'Vui lòng chọn hình ảnh!',
+					undefined,
+					'warning',
+				);
+
+				return;
+			}
+
+			let token: string | null | undefined = tokenDevice;
+
+			if (!token) {
+				token = await storages.get.str('device');
+			}
+
+			if (!token) {
+				token = await renewTokenDevice(signal);
+			}
+
+			if (!token) throw new Error();
+
+			const body = new FormData();
+
+			body.append('file', {
+				name: fileName,
+				uri,
+				type,
+			});
+			body.append('avatar', 'true');
+
+			const result = await services.common.images.upload(
+				signal,
+				token,
+				body,
+			);
+
+			if (!result) throw new Error();
+
+			if (result === 'Unauthorized') {
+				if (tokenDevice) throw new Error();
+
+				const renewToken = await renewTokenDevice(signal);
+
+				if (!renewToken) throw new Error();
+
+				return getData(signal, image, renewToken);
+			}
+
+			if (result === 'NotFound') {
+				setAvatarTemp(undefined);
+
+				onNotification(
+					'toast-screen-user-image-not-found',
+					'Không có hình ảnh!',
+					undefined,
+					'warning',
+				);
+
+				return;
+			}
+
+			if (result === 'ImageFormat') {
+				setAvatarTemp(undefined);
+
+				onNotification(
+					'toast-screen-user-image-format',
+					'Vui lòng chọn ảnh khác!',
+					'Định dạng ảnh không hỗ trợ',
+					'info',
+				);
+
+				return;
+			}
+
+			if (result === 'ImageToBig') {
+				setAvatarTemp(undefined);
+
+				onNotification(
+					'toast-screen-user-image-to-big',
+					'Vui lòng chọn ảnh khác!',
+					'Hình ảnh quá lớn',
+					'info',
+				);
+
+				return;
+			}
+
+			setAvatarTemp(undefined);
+			setAvatar(result);
+		};
+
+		if (avatarTemp) {
+			getData(controller.signal, avatarTemp).catch(() => {
+				setAvatarTemp(undefined);
+
+				onNotification(
+					'toast-screen-user-error',
+					'Máy chủ bị lỗi',
+					'Vui lòng thử lại sau!',
+					'error',
+				);
+			});
+		}
+
+		return () => controller.abort();
+	}, [avatarTemp, onNotification]);
+	useEffect(() => {
+		const controller = new AbortController();
+
+		const getData = async (
+			signal: AbortSignal,
+			phone: string,
+			tokenDevice?: string,
+		): Promise<void> => {
+			if (!fullName) {
+				setIsCreating(false);
+
+				onNotification(
+					'toast-screen-user-require',
+					'Vui lòng nhập họ và tên!',
+					undefined,
+					'info',
+				);
+
+				return;
+			}
+
+			if (!birthday) {
+				setIsCreating(false);
+
+				onNotification(
+					'toast-screen-user-require',
+					'Vui lòng nhập ngày sinh!',
+					undefined,
+					'info',
+				);
+
+				return;
+			}
+
+			if (!address) {
+				setIsCreating(false);
+
+				onNotification(
+					'toast-screen-user-require',
+					'Vui lòng nhập địa chỉ!',
+					undefined,
+					'info',
+				);
+
+				return;
+			}
+
+			let token: string | null | undefined = tokenDevice;
+
+			if (!token) {
+				token = await storages.get.str('device');
+			}
+
+			if (!token) {
+				token = await renewTokenDevice(signal);
+			}
+
+			if (!token) throw new Error();
+
+			const body: IUserCreate = {
+				address,
+				birthday,
+				fullName,
+				phoneNumber: phone,
+				avatar: avatar ? avatar : null,
+			};
+
+			const result = await services.user.create(signal, token, body);
+
+			if (!result) throw new Error();
+
+			if (result === 'UnauthorizedDevice') {
+				if (tokenDevice) throw new Error();
+
+				const renewToken = await renewTokenDevice(signal);
+
+				if (!renewToken) throw new Error();
+
+				return getData(signal, phone, renewToken);
+			}
+
+			if (result === 'BadRequest') {
+				setIsCreating(false);
+
+				onNotification(
+					'toast-screen-user-bad-request',
+					'Vui lòng thử lại!',
+					'Tạo tài khoản không thành công',
+					'warning',
+				);
+
+				return;
+			}
+
+			return login(signal, token, result);
+		};
+
+		const login = async (
+			signal: AbortSignal,
+			device: string,
+			user: string,
+		): Promise<void> => {
+			const result = await services.user.info(signal, device, user);
+
+			if (!result) throw new Error();
+
+			if (result === 'UnauthorizedDevice') throw new Error();
+
+			if (result === 'UnauthorizedUser') {
+				onNotification(
+					'toast-screen-user-login-unauthorized-user',
+					'Vui lòng thử lại!',
+					'Có lỗi xảy ra',
+					'warning',
+				);
+
+				setIsCreating(false);
+
+				return;
+			}
+
+			const isLogin = await onLogin(user, result);
+
+			if (!isLogin) {
+				setIsCreating(false);
+
+				onNotification(
+					'toast-screen-user-login-failed',
+					'Vui lòng thử lại!',
+					'Tạo tài khoản không thành công',
+					'warning',
+				);
+
+				return;
+			}
+
+			setIsCreating(false);
+
+			onNotification(
+				'toast-screen-user-login-success',
+				'Tạo tài khoản thành công',
+			);
+
+			setTimeout(() => navigation.navigate('Home'), 500);
+		};
+
+		if (isCreating) {
+			getData(controller.signal, route.params.phoneNumber).catch(() => {
+				setIsCreating(false);
+
+				Alert.alert('Máy chủ bị lỗi', 'Bạn có muốn thử lại không?', [
+					{
+						text: 'Thử lại',
+						style: 'default',
+					},
+					{
+						text: 'Thoát',
+						onPress: () => navigation.navigate('Home'),
+					},
+				]);
+			});
+		}
+
+		return () => controller.abort();
+	}, [
+		route,
+		navigation,
+		isCreating,
+		address,
+		avatar,
+		birthday,
+		fullName,
+		onLogin,
+		onNotification,
+	]);
+	useEffect(() => {
+		Alert.alert('Máy chủ bị lỗi', 'Bạn có muốn thử lại không?', [
+			{
+				text: 'Thử lại',
+				style: 'default',
+			},
+			{
+				text: 'Thoát',
+				onPress: () => navigation.navigate('Home'),
+			},
+		]);
+	}, [navigation]);
+
+	// Handle
 	const _dateTimePickerByAndroid = () => {
 		DateTimePickerAndroid.open({
-			value: new Date(Date.now()),
+			value: validatorBirthday,
 			onChange: handleChangeDatePicker,
 			mode: 'date',
+			minimumDate: new Date(1960, 0, 1),
+			maximumDate: new Date(Date.now() - FourYearMilliseconds),
 		});
 	};
 
@@ -82,27 +409,55 @@ const Index: FunctionComponent<Props> = ({ navigation, route }) => {
 
 	const handleChangeDatePicker = (e: DateTimePickerEvent) => {
 		if (e.nativeEvent.timestamp) {
-			setBirthday(e.nativeEvent.timestamp);
+			if (Platform.OS === 'android') {
+				setBirthday(e.nativeEvent.timestamp);
+			} else {
+				setBirthdayTemp(e.nativeEvent.timestamp);
+			}
 		}
 	};
+	const handleChangeFullName = (value: string) => setFullName(value);
+	const handleChangeAddress = (value: string) => setAddress(value);
 
+	const handlePressClose = () => navigation.navigate('Login');
 	const handlePressBirthday = () =>
 		Platform.OS === 'ios'
 			? handleOpenModalDate()
 			: _dateTimePickerByAndroid();
 	const handlePressCancelModalDate = () => {
 		setBirthday(undefined);
+		setBirthdayTemp(undefined);
 		setIsModalDate(false);
 	};
 	const handlePressUploadAvatar = async () => {
-		const test = await launchImageLibrary({
+		const image = await launchImageLibrary({
 			mediaType: 'photo',
 		});
 
-		if (!test.didCancel) {
-			console.log(test.assets);
+		if (!image.didCancel && image.assets && image.assets.length === 1) {
+			setAvatarTemp(image.assets[0]);
 		}
 	};
+	const handlePressCreate = () => {
+		if (fullName && birthday && address) {
+			setIsCreating(true);
+		}
+	};
+	const handlePressSelectBirthday = () => {
+		if (birthdayTemp) {
+			setBirthday(birthdayTemp);
+			setIsModalDate(false);
+		}
+	};
+
+	// Validator
+	const validatorAvatar =
+		avatar === undefined
+			? AvatarDefault
+			: { uri: `${host}/temp/${avatar}` };
+	const validatorBirthday = birthdayTemp
+		? new Date(birthdayTemp)
+		: new Date(Date.now() - FourYearMilliseconds);
 
 	return (
 		<>
@@ -120,10 +475,10 @@ const Index: FunctionComponent<Props> = ({ navigation, route }) => {
 						safeArea
 					>
 						<HStack alignItems="center" bgColor="white">
-							<Pressable>
+							<Pressable onPress={handlePressClose}>
 								<Icon
 									as={MaterialIcons}
-									name="arrow-back"
+									name="close"
 									size="md"
 									color="dark.200"
 								/>
@@ -135,7 +490,7 @@ const Index: FunctionComponent<Props> = ({ navigation, route }) => {
 								fontWeight="semibold"
 								color="dark.200"
 							>
-								Chỉnh sửa thông tin
+								Tạo người dùng
 							</Text>
 						</HStack>
 						<ScrollView
@@ -144,10 +499,22 @@ const Index: FunctionComponent<Props> = ({ navigation, route }) => {
 						>
 							<Pressable
 								onPress={handlePressUploadAvatar}
-								isDisabled={isCreating}
+								isDisabled={
+									isCreating || avatarTemp !== undefined
+								}
 							>
 								<HStack alignItems="center">
-									<Avatar source={AvatarDefault} size="xl" />
+									{avatarTemp !== undefined ? (
+										<Center w={24} h={24}>
+											<Spinner size="lg" />
+										</Center>
+									) : (
+										<Avatar
+											source={validatorAvatar}
+											w={24}
+											h={24}
+										/>
+									)}
 									<Box
 										ml={4}
 										flex={1}
@@ -230,7 +597,10 @@ const Index: FunctionComponent<Props> = ({ navigation, route }) => {
 									px={0}
 									fontSize={14}
 									fontWeight="light"
-									isDisabled={isCreating}
+									isDisabled={
+										isCreating || avatarTemp !== undefined
+									}
+									onChangeText={handleChangeFullName}
 								/>
 							</FormControl>
 							<Pressable
@@ -261,8 +631,16 @@ const Index: FunctionComponent<Props> = ({ navigation, route }) => {
 											py={2}
 											fontSize={14}
 											fontWeight="light"
+											color={
+												isCreating ||
+												avatarTemp !== undefined
+													? 'muted.400'
+													: 'muted.900'
+											}
 										>
-											Vui lòng chọn ngày sinh
+											{birthday
+												? format(birthday, 'dd/MM/yyyy')
+												: 'Vui lòng chọn ngày sinh'}
 										</Text>
 										<Icon
 											as={MaterialCommunityIcons}
@@ -288,7 +666,10 @@ const Index: FunctionComponent<Props> = ({ navigation, route }) => {
 									px={0}
 									fontSize={14}
 									fontWeight="light"
-									isDisabled={isCreating}
+									isDisabled={
+										isCreating || avatarTemp !== undefined
+									}
+									onChangeText={handleChangeAddress}
 								/>
 							</FormControl>
 						</ScrollView>
@@ -296,11 +677,16 @@ const Index: FunctionComponent<Props> = ({ navigation, route }) => {
 							bg="info.500"
 							isDisabled={
 								isCreating ||
-								isUploading ||
+								avatarTemp !== undefined ||
 								(!fullName && !birthday && !address)
 							}
 							isLoadingText="Đang tạo tài khoản"
 							isLoading={isCreating}
+							_text={{
+								fontWeight: 600,
+							}}
+							onPress={handlePressCreate}
+							mb={Platform.OS === 'android' ? 4 : 0}
 						>
 							Tạo tài khoản
 						</Button>
@@ -320,11 +706,11 @@ const Index: FunctionComponent<Props> = ({ navigation, route }) => {
 					</Modal.Header>
 					<Modal.Body position="relative">
 						<DateTimePicker
-							value={new Date(birthday ? birthday : Date.now())}
+							value={validatorBirthday}
 							display="spinner"
 							minimumDate={new Date(1960, 0, 1)}
 							maximumDate={
-								new Date(Date.now() - 4 * OneYearMilliseconds)
+								new Date(Date.now() - FourYearMilliseconds)
 							}
 							onChange={handleChangeDatePicker}
 							mode="date"
@@ -343,8 +729,11 @@ const Index: FunctionComponent<Props> = ({ navigation, route }) => {
 							bg="info.600"
 							flex={1}
 							ml={2}
-							disabled={birthday === undefined}
-							onPress={handleCloseModalDate}
+							disabled={birthdayTemp === undefined}
+							onPress={handlePressSelectBirthday}
+							_text={{
+								fontWeight: 600,
+							}}
 						>
 							Chọn
 						</Button>

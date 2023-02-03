@@ -7,7 +7,12 @@ import React, {
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import Ionicons from 'react-native-vector-icons/Ionicons';
-import { StatusBar, Linking } from 'react-native';
+import {
+	StatusBar,
+	Linking,
+	ImageSourcePropType,
+	Platform,
+} from 'react-native';
 import { InAppBrowser } from 'react-native-inappbrowser-reborn';
 import {
 	Text,
@@ -22,11 +27,24 @@ import {
 // Assets
 import AvatarDefault from '@assets/images/avatar-default.png';
 
+// Components
+import { LoadingComponent } from '@components';
+
+// Config
+import { host, LinkDefault } from '@configs';
+
 // Context
 import { Context } from '@context';
 
+// Helpers
+import { storages } from '@helpers';
+
 // Interfaces
-import type { ICompositeNavigationBottomTabs } from '@interfaces';
+import type {
+	ICompositeNavigationBottomTabs,
+	ILinkJSON,
+	IPostStatus,
+} from '@interfaces';
 
 // Props
 interface Props {
@@ -34,6 +52,46 @@ interface Props {
 }
 
 const Index: FunctionComponent<Props> = ({ navigation }) => {
+	// States
+	const [isLogout, setIsLogout] = useState<boolean>(false);
+
+	const [links, setLinks] = useState<ILinkJSON | null>(null);
+
+	// Hooks
+	const { onLogout, user } = useContext(Context);
+
+	// Effect
+	useEffect(() => {
+		const getData = async () => {
+			const getLinks = await storages.get.obj<ILinkJSON>('links');
+
+			if (getLinks) {
+				setLinks(getLinks);
+			}
+		};
+
+		getData();
+	}, []);
+	useEffect(() => {
+		if (!user) {
+			navigation.navigate('Home');
+		}
+	}, [navigation, user]);
+	useEffect(() => {
+		let id: NodeJS.Timeout;
+
+		if (isLogout) {
+			onLogout();
+
+			id = setTimeout(() => {
+				setIsLogout(false);
+				navigation.navigate('Home');
+			}, 1000);
+		}
+
+		return () => clearTimeout(id);
+	}, [isLogout, navigation, onLogout]);
+
 	// Handle
 	const handleOpenInApp = async (uri: string) => {
 		if (await InAppBrowser.isAvailable()) {
@@ -73,19 +131,41 @@ const Index: FunctionComponent<Props> = ({ navigation }) => {
 	};
 
 	const handlePressSupportCenter = () =>
-		handleOpenInApp('https://claimether.com');
+		handleOpenInApp(!links || !links.Contact ? LinkDefault : links.Contact);
 	const handlePressUserManual = () =>
-		handleOpenInApp('https://claimether.com');
-	const handlePressMyPosts = () => navigation.navigate('MyPosts');
+		handleOpenInApp(!links || !links.Guide ? LinkDefault : links.Guide);
+	const handlePressMyPosts = (status: Exclude<IPostStatus, 'sold'>) =>
+		navigation.navigate('MyPosts', { status });
+	const handlePressLogout = () => setIsLogout(true);
+	const handlePressProfile = () => {
+		if (user) {
+			// eslint-disable-next-line @typescript-eslint/no-unused-vars
+			const { posts: _, ...data } = user;
+
+			navigation.navigate('Profile', {
+				data,
+			});
+		}
+	};
+
+	if (!user) return <LoadingComponent />;
+
+	const avatar: ImageSourcePropType = user.avatar
+		? { uri: `${host}/images/avatar/${user.avatar}` }
+		: AvatarDefault;
 
 	return (
 		<>
 			<StatusBar barStyle="dark-content" />
 			<Box px={4} safeArea flex={1}>
-				<Pressable>
+				<Pressable
+					onPress={handlePressProfile}
+					isDisabled={isLogout}
+					mt={Platform.OS === 'android' ? 4 : 0}
+				>
 					<HStack alignItems="center">
 						<Avatar
-							source={AvatarDefault}
+							source={avatar}
 							alignSelf="center"
 							bg="gray.300"
 							w={16}
@@ -93,7 +173,7 @@ const Index: FunctionComponent<Props> = ({ navigation }) => {
 						/>
 						<Box ml={4}>
 							<Text fontSize={20} fontWeight="bold">
-								Huy Hoàng
+								{user.fullName}
 							</Text>
 							<Text
 								fontSize={12}
@@ -110,7 +190,7 @@ const Index: FunctionComponent<Props> = ({ navigation }) => {
 						Quản lý tin đăng
 					</Text>
 					<Box pl={4}>
-						<Pressable onPress={handlePressMyPosts}>
+						<Pressable onPress={() => handlePressMyPosts('accept')}>
 							<HStack alignItems="center">
 								<Icon
 									as={MaterialCommunityIcons}
@@ -132,7 +212,7 @@ const Index: FunctionComponent<Props> = ({ navigation }) => {
 										fontSize={15}
 										color="gray.700"
 									>
-										Tin đã đăng (10)
+										{`Tin đã đăng (${user.posts.accept})`}
 									</Text>
 									<Icon
 										as={MaterialIcons}
@@ -144,7 +224,9 @@ const Index: FunctionComponent<Props> = ({ navigation }) => {
 								</HStack>
 							</HStack>
 						</Pressable>
-						<Pressable>
+						<Pressable
+							onPress={() => handlePressMyPosts('pending')}
+						>
 							<HStack alignItems="center">
 								<Icon
 									as={MaterialCommunityIcons}
@@ -164,7 +246,7 @@ const Index: FunctionComponent<Props> = ({ navigation }) => {
 										fontSize={15}
 										color="gray.700"
 									>
-										Tin chờ duyệt (1)
+										{`Tin chờ duyệt (${user.posts.pending})`}
 									</Text>
 									<Icon
 										as={MaterialIcons}
@@ -256,10 +338,17 @@ const Index: FunctionComponent<Props> = ({ navigation }) => {
 					mt={10}
 					borderRadius="lg"
 					borderColor="gray.400"
+					_text={{
+						fontSize: 16,
+						fontWeight: 'bold',
+						color: 'dark.400',
+					}}
+					isLoading={isLogout}
+					isDisabled={isLogout}
+					isLoadingText="Đăng xuất"
+					onPress={handlePressLogout}
 				>
-					<Text fontSize={16} fontWeight="bold" color="dark.400">
-						Đăng xuất
-					</Text>
+					Đăng xuất
 				</Button>
 			</Box>
 		</>

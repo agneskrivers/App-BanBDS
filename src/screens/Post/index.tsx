@@ -1,22 +1,32 @@
-import React, { FunctionComponent, useEffect, useState, useRef } from 'react';
+import React, {
+	FunctionComponent,
+	useEffect,
+	useState,
+	useRef,
+	useContext,
+} from 'react';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import AntDesign from 'react-native-vector-icons/AntDesign';
+import RNFetchBlob from 'rn-fetch-blob';
 import Carousel, { Pagination } from 'react-native-snap-carousel';
-import MapView, { Marker } from 'react-native-maps';
 import YoutubeIframe from 'react-native-youtube-iframe';
 import { format } from 'date-fns';
 import { RouteProp } from '@react-navigation/native';
+import { CameraRoll } from '@react-native-camera-roll/camera-roll';
 import {
 	Dimensions,
 	GestureResponderEvent,
 	NativeSyntheticEvent,
 	NativeScrollEvent,
 	Linking,
-	Share,
 	Alert,
 	StatusBar,
 	StyleSheet,
+	PermissionsAndroid,
+	Platform,
+	Share,
+	LayoutChangeEvent,
 } from 'react-native';
 import {
 	Box,
@@ -27,15 +37,34 @@ import {
 	Pressable,
 	HStack,
 	Button,
-	Modal,
 	Skeleton,
 	Center,
-	PresenceTransition,
 	useDisclose,
+	IconButton,
+	Stagger,
+	Actionsheet,
 } from 'native-base';
 
+// Components
+import { LoadingComponent, MapComponent } from '@components';
+
+// Configs
+import { host } from '@configs';
+
+// Context
+import { Context } from '@context';
+
 // Helpers
-import { getName, getPricePerAcreage, formatPhoneNumber } from '@helpers';
+import {
+	getName,
+	getPricePerAcreage,
+	formatPhoneNumber,
+	storages,
+	renewTokenDevice,
+} from '@helpers';
+
+// Services
+import services from '@services';
 
 // Interfaces
 import type {
@@ -50,36 +79,274 @@ interface Props {
 	route: RouteProp<IStackParams, 'Post'>;
 }
 
-// Demo
-import { post } from '../../../demo';
-
 const Index: FunctionComponent<Props> = ({ navigation, route }) => {
 	// Constants
-	const { width: screenWidth, height: screenHeight } =
-		Dimensions.get('screen');
+	const { width: screenWidth } = Dimensions.get('screen');
 
 	// States
 	const [isScroll, setIsScroll] = useState<boolean>(false);
+	const [isLoaded, setIsLoaded] = useState<boolean>(false);
+	const [isHeight, setIsHeight] = useState<boolean>(true);
+	const [isLoadMore, setIsLoadMore] = useState<boolean>(false);
 
 	const [data, setData] = useState<IPostInfo | null>(null);
 	const [index, setIndex] = useState<number>(0);
 
+	const [image, setImage] = useState<string>();
+
 	// Hooks
 	const { isOpen, onToggle } = useDisclose();
+	const { isNetwork, onNotification } = useContext(Context);
+	const {
+		isOpen: isPhoneNumber,
+		onOpen: handleOpenPhoneNumber,
+		onClose: handleClosePhoneNumber,
+	} = useDisclose();
+	const {
+		isOpen: isZalo,
+		onOpen: handleOpenZalo,
+		onClose: handleCloseZalo,
+	} = useDisclose();
+	const {
+		isOpen: isMap,
+		onOpen: onOpenMap,
+		onClose: onCloseMap,
+	} = useDisclose();
 
 	// Ref
 	const carouselRef = useRef<Carousel<string>>(null);
 
 	// Effects
 	useEffect(() => {
-		const getData = async () => {
-			setTimeout(() => {
-				setData(post);
-			}, 2000);
+		const controller = new AbortController();
+
+		const getData = async (
+			signal: AbortSignal,
+			postID: number,
+			tokenDevice?: string,
+		): Promise<void> => {
+			let token: string | undefined | null = tokenDevice;
+
+			if (!token) {
+				token = await storages.get.str('device');
+			}
+
+			if (!token) {
+				token = await renewTokenDevice(signal);
+			}
+
+			if (!token) throw new Error();
+
+			const result = await services.posts.info(signal, token, postID);
+
+			if (!result) throw new Error();
+
+			if (result === 'UnauthorizedDevice') {
+				if (tokenDevice) throw new Error();
+
+				const renewToken = await renewTokenDevice(signal);
+
+				if (!renewToken) throw new Error();
+
+				return getData(signal, postID, renewToken);
+			}
+
+			if (result === 'BadRequest') {
+				onNotification(
+					'toast-screen-post-result-bad-request',
+					'Vui lòng thử lại!',
+					'Không tìm thấy tin đăng',
+					'warning',
+				);
+
+				if (navigation.canGoBack()) {
+					navigation.goBack();
+				} else {
+					navigation.navigate('Posts', { type: 'sell' });
+				}
+
+				return;
+			}
+
+			setData(result);
 		};
 
-		getData();
-	}, []);
+		if (!data) {
+			if (isNetwork) {
+				getData(controller.signal, route.params.postID)
+					.catch(() => {
+						onNotification(
+							'toast-screen-post-error',
+							'Vui lòng thử lại!',
+							'Máy chủ bị lỗi',
+							'error',
+						);
+
+						if (navigation.canGoBack()) {
+							navigation.goBack();
+						} else {
+							navigation.navigate('Posts', { type: 'sell' });
+						}
+					})
+					.finally(() => setIsLoaded(true));
+			} else {
+				if (navigation.canGoBack()) {
+					navigation.goBack();
+				} else {
+					navigation.navigate('Posts', { type: 'sell' });
+				}
+			}
+		}
+
+		return () => controller.abort();
+	}, [data, isNetwork, route.params.postID, navigation, onNotification]);
+	useEffect(() => {
+		const controller = new AbortController();
+
+		const hasAndroidPermission = async (): Promise<boolean> => {
+			const permission =
+				Platform.Version >= 33
+					? PermissionsAndroid.PERMISSIONS.READ_MEDIA_IMAGES
+					: PermissionsAndroid.PERMISSIONS.READ_EXTERNAL_STORAGE;
+
+			const hasPermission = await PermissionsAndroid.check(permission);
+
+			if (hasPermission) return true;
+
+			const status = await PermissionsAndroid.request(permission);
+
+			return status === 'granted';
+		};
+
+		const getData = async (id: string) => {
+			if (Platform.OS === 'android' && !(await hasAndroidPermission()))
+				return;
+
+			const url = `${host}/images/posts/${id}`;
+
+			const file = await RNFetchBlob.config({
+				fileCache: true,
+				appendExt: 'jpg',
+			}).fetch('GET', url);
+
+			const path = file.path();
+
+			await CameraRoll.save(path, { type: 'photo' });
+
+			file.flush();
+		};
+
+		if (image) {
+			getData(image)
+				.then(() => Alert.alert('Lưu ảnh thành công'))
+				.catch(() => Alert.alert('Lưu ảnh thất bại'))
+				.finally(() => setImage(undefined));
+		}
+
+		return () => controller.abort();
+	}, [image]);
+
+	// Handles
+	const handleScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+		const { y } = e.nativeEvent.contentOffset;
+
+		if (y >= 175 && !isScroll) return setIsScroll(true);
+
+		if (y < 175 && isScroll) return setIsScroll(false);
+	};
+	const handleSnapToItem = (value: number) => setIndex(value);
+	const handleTouchEnd = (e: GestureResponderEvent) => {
+		if (carouselRef && carouselRef.current && data) {
+			const { locationX } = e.nativeEvent;
+
+			const width = screenWidth / 2;
+
+			let newIndex = index + (locationX > width ? 1 : -1);
+
+			if (newIndex === -1) {
+				newIndex = data.images.length - 1;
+			}
+
+			if (newIndex >= data.images.length) {
+				newIndex = 0;
+			}
+
+			carouselRef.current.snapToItem(newIndex);
+
+			setIndex(newIndex);
+		}
+	};
+	const handleLayoutContent = (e: LayoutChangeEvent) => {
+		const { height } = e.nativeEvent.layout;
+
+		const minHeight = 14 * 1.75 * 6;
+
+		if (height <= minHeight && isHeight) {
+			setIsHeight(false);
+		}
+	};
+
+	const handlePressClose = () => {
+		if (navigation.canGoBack()) {
+			navigation.goBack();
+		} else {
+			navigation.navigate('Posts', { type: 'sell' });
+		}
+	};
+	const handlePressMenu = () => onToggle();
+	const handlePressSavePhoto = () => {
+		if (data !== null && !image) {
+			setImage(data.images[index]);
+			onToggle();
+		}
+	};
+	const handlePressShare = async () => {
+		if (data) {
+			const url = `${host}/${data.link}`;
+
+			await Share.share({ url });
+
+			onToggle();
+		}
+	};
+	const handlePressLoadMore = () => {
+		if (isHeight) {
+			setIsLoadMore(preLoadMore => !preLoadMore);
+		}
+	};
+	const handlePressPhoneNumber = (phone?: string) => {
+		if (phone) {
+			Linking.openURL(`tel:${phone}`);
+			handleClosePhoneNumber();
+
+			return;
+		}
+
+		if (data) {
+			console.log(data.phoneNumber);
+			if (data.phoneNumber.length > 0) return handleOpenPhoneNumber();
+
+			return Linking.openURL(`tel:${data.phoneNumber[0]}`);
+		}
+	};
+	const handlePressZalo = (phone?: string) => {
+		if (phone) {
+			Linking.openURL(`https://zalo.me/${phone}`);
+
+			handleCloseZalo();
+
+			return;
+		}
+
+		if (data) {
+			if (data.phoneNumber.length > 0) return handleOpenZalo();
+
+			return Linking.openURL(`https://zalo.me/${data.phoneNumber[0]}`);
+		}
+	};
+	const handlePressAddress = () => {
+		if (data) return onOpenMap();
+	};
 
 	return (
 		<>
@@ -88,7 +355,7 @@ const Index: FunctionComponent<Props> = ({ navigation, route }) => {
 				<HStack
 					px={4}
 					pb={4}
-					zIndex={2}
+					zIndex={99}
 					justifyContent="space-between"
 					position="absolute"
 					w="100%"
@@ -97,34 +364,150 @@ const Index: FunctionComponent<Props> = ({ navigation, route }) => {
 					borderBottomColor="gray.200"
 					borderBottomWidth={isScroll ? 1 : 0}
 					safeAreaTop
+					pt={Platform.OS === 'android' ? 4 : 0}
 				>
-					<Pressable
-						p={1}
-						rounded="full"
-						background={
-							isScroll || !data ? 'transparent' : '#0000008a'
+					<IconButton
+						variant="solid"
+						bg={
+							isScroll || !data || !isLoaded
+								? 'transparent'
+								: '#0000008a'
 						}
-					>
-						<Icon
-							as={MaterialCommunityIcons}
-							name="close"
-							color={isScroll || !data ? 'muted.500' : 'white'}
-							size={isScroll || !data ? 'lg' : 'md'}
-						/>
-					</Pressable>
-					{data && (
-						<Pressable
-							p={1}
-							rounded="full"
-							background={isScroll ? 'transparent' : '#0000008a'}
-						>
+						borderRadius="full"
+						p={1}
+						icon={
 							<Icon
 								as={MaterialCommunityIcons}
-								name="dots-horizontal"
-								color={isScroll ? 'muted.500' : 'white'}
-								size={isScroll ? 'lg' : 'md'}
+								name="close"
+								color={
+									isScroll || !data || !isLoaded
+										? 'muted.500'
+										: 'white'
+								}
+								size={
+									isScroll || !data || !isLoaded ? 'lg' : 'md'
+								}
 							/>
-						</Pressable>
+						}
+						onPress={handlePressClose}
+						_pressed={{
+							backgroundColor:
+								isScroll || !data || !isLoaded
+									? 'white'
+									: 'gray.600',
+						}}
+					/>
+					{data && isLoaded && (
+						<Center position="relative">
+							<IconButton
+								variant="solid"
+								bg={isScroll ? 'transparent' : '#0000008a'}
+								borderRadius="full"
+								p={1}
+								icon={
+									<Icon
+										as={MaterialCommunityIcons}
+										name="dots-horizontal"
+										size={isScroll ? 'lg' : 'md'}
+										color={isScroll ? 'muted.500' : 'white'}
+									/>
+								}
+								onPress={handlePressMenu}
+								_pressed={{
+									backgroundColor:
+										isScroll || !data || !isLoaded
+											? 'white'
+											: 'gray.600',
+								}}
+							/>
+							{isOpen && (
+								<Box
+									alignItems="center"
+									position="absolute"
+									top="100%"
+									mt={isScroll ? 6 : 4}
+									w={20}
+									h={20}
+								>
+									<Stagger
+										visible={isOpen}
+										initial={{
+											opacity: 0,
+											scale: 0,
+											translateY: 34,
+										}}
+										animate={{
+											translateY: 0,
+											scale: 1,
+											opacity: 1,
+											transition: {
+												type: 'spring',
+												mass: 0.8,
+												stagger: {
+													offset: 30,
+													reverse: true,
+												},
+											},
+										}}
+										exit={{
+											translateY: 34,
+											scale: 0.5,
+											opacity: 0,
+											transition: {
+												duration: 100,
+												stagger: {
+													offset: 30,
+													reverse: true,
+												},
+											},
+										}}
+									>
+										<IconButton
+											mb={2}
+											variant="solid"
+											bg="red.500"
+											colorScheme="red"
+											borderRadius="full"
+											icon={
+												<Icon
+													as={MaterialIcons}
+													size={
+														isScroll ? 'lg' : 'md'
+													}
+													name="photo-library"
+													_dark={{
+														color: 'warmGray.50',
+													}}
+													color="warmGray.50"
+												/>
+											}
+											onPress={handlePressSavePhoto}
+										/>
+										<IconButton
+											mb={2}
+											variant="solid"
+											bg="indigo.500"
+											colorScheme="indigo"
+											borderRadius="full"
+											icon={
+												<Icon
+													as={MaterialIcons}
+													size={
+														isScroll ? 'lg' : 'md'
+													}
+													name="share"
+													_dark={{
+														color: 'warmGray.50',
+													}}
+													color="warmGray.50"
+												/>
+											}
+											onPress={handlePressShare}
+										/>
+									</Stagger>
+								</Box>
+							)}
+						</Center>
 					)}
 				</HStack>
 				<ScrollView
@@ -132,9 +515,10 @@ const Index: FunctionComponent<Props> = ({ navigation, route }) => {
 					showsHorizontalScrollIndicator={false}
 					scrollEventThrottle={1}
 					bgColor="white"
+					onScroll={handleScroll}
 				>
-					<Skeleton h={250} isLoaded={data !== null}>
-						{data && (
+					<Skeleton h={250} isLoaded={data !== null && isLoaded}>
+						{data && isLoaded && (
 							<Center position="relative" h={250}>
 								<Carousel
 									ref={carouselRef}
@@ -144,7 +528,9 @@ const Index: FunctionComponent<Props> = ({ navigation, route }) => {
 									renderItem={({ item }) => (
 										<Pressable>
 											<Image
-												source={{ uri: item }}
+												source={{
+													uri: `${host}/images/posts/${item}`,
+												}}
 												resizeMode="cover"
 												h={250}
 												w={screenWidth}
@@ -153,20 +539,41 @@ const Index: FunctionComponent<Props> = ({ navigation, route }) => {
 										</Pressable>
 									)}
 									vertical={false}
+									onSnapToItem={handleSnapToItem}
+									onTouchEnd={handleTouchEnd}
 								/>
-								<Box zIndex={2} position="absolute" bottom={0}>
-									<Pagination
-										dotsLength={data.images.length}
-										activeDotIndex={index}
-										dotStyle={styles.carouselDot}
-										inactiveDotStyle={
-											styles.carouselInactiveDot
-										}
-										containerStyle={
-											styles.carouselContainer
-										}
-									/>
-								</Box>
+								{image === undefined && (
+									<Box
+										zIndex={2}
+										position="absolute"
+										bottom={0}
+									>
+										<Pagination
+											dotsLength={data.images.length}
+											activeDotIndex={index}
+											dotStyle={styles.carouselDot}
+											inactiveDotStyle={
+												styles.carouselInactiveDot
+											}
+											containerStyle={
+												styles.carouselContainer
+											}
+										/>
+									</Box>
+								)}
+								{image && (
+									<Center
+										flex={1}
+										position="absolute"
+										top={0}
+										left={0}
+										zIndex={9}
+										w="100%"
+										h={250}
+									>
+										<LoadingComponent isWhite />
+									</Center>
+								)}
 							</Center>
 						)}
 					</Skeleton>
@@ -178,10 +585,10 @@ const Index: FunctionComponent<Props> = ({ navigation, route }) => {
 						>
 							<Skeleton.Text
 								fontSize={15}
-								isLoaded={data !== null}
+								isLoaded={data !== null && isLoaded}
 								lines={1}
 							>
-								{data && (
+								{data && isLoaded && (
 									<Text
 										fontWeight="bold"
 										textTransform="uppercase"
@@ -198,12 +605,12 @@ const Index: FunctionComponent<Props> = ({ navigation, route }) => {
 							</Skeleton.Text>
 							<Skeleton.Text
 								fontSize={14}
-								isLoaded={data !== null}
+								isLoaded={data !== null && isLoaded}
 								lines={2}
 								mt={2}
 							>
-								{data && (
-									<Pressable>
+								{data && isLoaded && (
+									<Pressable onPress={handlePressAddress}>
 										<HStack mt={2} alignItems="center">
 											<Icon
 												as={MaterialIcons}
@@ -228,7 +635,7 @@ const Index: FunctionComponent<Props> = ({ navigation, route }) => {
 									</Pressable>
 								)}
 							</Skeleton.Text>
-							{data && (
+							{data && isLoaded && (
 								<HStack mt={2}>
 									<Box>
 										<Text fontWeight="semibold">
@@ -291,8 +698,11 @@ const Index: FunctionComponent<Props> = ({ navigation, route }) => {
 							>
 								Thông tin mô tả
 							</Text>
-							<Skeleton.Text lines={20} isLoaded={data !== null}>
-								{data && (
+							<Skeleton.Text
+								lines={20}
+								isLoaded={data !== null && isLoaded}
+							>
+								{data && isLoaded && (
 									<>
 										{data.video && (
 											<YoutubeIframe
@@ -303,39 +713,55 @@ const Index: FunctionComponent<Props> = ({ navigation, route }) => {
 										<Text
 											mt={data.video ? 2 : 0}
 											lineHeight="xl"
-											numberOfLines={6}
+											numberOfLines={
+												!isHeight
+													? undefined
+													: isLoadMore
+													? undefined
+													: 6
+											}
+											onLayout={handleLayoutContent}
 										>
 											{`${decodeURI(data.content)}`}
 										</Text>
-										<Button
-											variant="outline"
-											mt={6}
-											borderColor="info.600"
-											_pressed={{
-												backgroundColor: 'info.300',
-											}}
-										>
-											<HStack alignItems="center">
-												<Text
-													fontSize={16}
-													fontWeight="medium"
-													color="info.600"
-												>
-													Xem thêm
-												</Text>
-												<Icon
-													as={MaterialIcons}
-													name="keyboard-arrow-up"
-													size="md"
-													color="info.600"
-												/>
-											</HStack>
-										</Button>
+										{isHeight && (
+											<Button
+												variant="outline"
+												mt={6}
+												borderColor="info.600"
+												_pressed={{
+													backgroundColor: 'info.300',
+												}}
+												onPress={handlePressLoadMore}
+											>
+												<HStack alignItems="center">
+													<Text
+														fontSize={16}
+														fontWeight="medium"
+														color="info.600"
+													>
+														{isLoadMore
+															? 'Thu gọn'
+															: 'Xem thêm'}
+													</Text>
+													<Icon
+														as={MaterialIcons}
+														name={`keyboard-arrow-${
+															isLoadMore
+																? 'down'
+																: 'up'
+														}`}
+														size="md"
+														color="info.600"
+													/>
+												</HStack>
+											</Button>
+										)}
 									</>
 								)}
 							</Skeleton.Text>
 						</Box>
-						{data && (
+						{data && isLoaded && (
 							<>
 								<Box
 									py={4}
@@ -584,15 +1010,20 @@ const Index: FunctionComponent<Props> = ({ navigation, route }) => {
 						)}
 					</Box>
 				</ScrollView>
-				{data && (
+				{data && isLoaded && (
 					<HStack
 						p={4}
-						pb={0}
+						pb={Platform.OS === 'android' ? 4 : 0}
 						alignItems="center"
 						borderTopColor="gray.200"
 						borderTopWidth={1}
 					>
-						<Button colorScheme="blue" flex={1} mr={2}>
+						<Button
+							colorScheme="blue"
+							flex={1}
+							mr={2}
+							onPress={() => handlePressPhoneNumber()}
+						>
 							<HStack alignItems="center">
 								<Icon
 									as={MaterialIcons}
@@ -610,7 +1041,12 @@ const Index: FunctionComponent<Props> = ({ navigation, route }) => {
 								</Text>
 							</HStack>
 						</Button>
-						<Button colorScheme="blue" flex={1} ml={2}>
+						<Button
+							colorScheme="blue"
+							flex={1}
+							ml={2}
+							onPress={() => handlePressZalo()}
+						>
 							<HStack alignItems="center">
 								<Icon
 									as={AntDesign}
@@ -631,157 +1067,70 @@ const Index: FunctionComponent<Props> = ({ navigation, route }) => {
 					</HStack>
 				)}
 			</Box>
-			{data && (
+			{data && isLoaded && data.phoneNumber.length > 0 && (
 				<>
-					<Modal
-						isOpen={false}
-						animationPreset="slide"
-						size="full"
-						px={4}
+					<Actionsheet
+						isOpen={isPhoneNumber}
+						onClose={handleClosePhoneNumber}
+						hideDragIndicator
 					>
-						<Modal.Content
-							bgColor="transparent"
-							mb={1}
-							safeAreaBottom
-							mt="auto"
-							shadow="none"
-						>
-							<Modal.Body
-								m={0}
-								p={0}
-								backgroundColor="white"
-								borderRadius={7}
-							>
-								<Pressable
-									flex={1}
-									py={4}
-									borderBottomColor="gray.200"
-									borderBottomWidth={1}
-								>
-									<Text
-										textAlign="center"
-										fontWeight="medium"
-										fontSize={16}
-									>
-										Lưu Ảnh
-									</Text>
-								</Pressable>
-								<Pressable flex={1} py={4}>
-									<Text
-										textAlign="center"
-										fontWeight="medium"
-										fontSize={16}
-									>
-										Sao chép liên kết
-									</Text>
-								</Pressable>
-							</Modal.Body>
-							<Modal.Footer
-								justifyContent="center"
-								alignItems="center"
-								mt={2}
-								borderRadius={7}
-							>
-								<Pressable flex={1}>
-									<Text
-										color="blue.600"
-										fontSize={16}
-										fontWeight="medium"
-										textAlign="center"
-									>
-										Hủy
-									</Text>
-								</Pressable>
-							</Modal.Footer>
-						</Modal.Content>
-					</Modal>
-					<Modal isOpen={false} size="xl">
-						<Modal.Content>
-							<Modal.Body p={0}>
-								<MapView
-									initialRegion={{
-										latitude: data.coordinate.latitude,
-										longitude: data.coordinate.longitude,
-										latitudeDelta: 0.1,
-										longitudeDelta: 0.1,
-									}}
-									style={{
-										width: screenWidth * 0.9,
-										height: screenHeight * 0.6,
+						<Actionsheet.Content borderTopRadius={0}>
+							<Box w="100%" p={4} justifyContent="center">
+								<Text
+									fontSize="16"
+									color="gray.500"
+									_dark={{
+										color: 'gray.300',
 									}}
 								>
-									<Marker
-										coordinate={{
-											latitude: data.coordinate.latitude,
-											longitude:
-												data.coordinate.longitude,
-										}}
-									/>
-								</MapView>
-							</Modal.Body>
-						</Modal.Content>
-					</Modal>
-					<Modal
-						isOpen={false}
-						animationPreset="slide"
-						size="full"
-						px={4}
+									Vui lòng chọn số để gọi
+								</Text>
+							</Box>
+							{data.phoneNumber.map(item => (
+								<Actionsheet.Item
+									key={item}
+									onPress={() => handlePressPhoneNumber(item)}
+								>
+									{formatPhoneNumber(item)}
+								</Actionsheet.Item>
+							))}
+						</Actionsheet.Content>
+					</Actionsheet>
+					<Actionsheet
+						isOpen={isZalo}
+						onClose={handleCloseZalo}
+						hideDragIndicator
 					>
-						<Modal.Content
-							bgColor="transparent"
-							mb={1}
-							safeAreaBottom
-							mt="auto"
-							shadow="none"
-						>
-							<Modal.Body
-								m={0}
-								p={0}
-								backgroundColor="white"
-								borderRadius={7}
-							>
-								{data.phoneNumber.map((item, i) => (
-									<Pressable
-										key={item}
-										flex={1}
-										py={4}
-										borderBottomColor="gray.200"
-										borderBottomWidth={
-											data.phoneNumber.length - 1 === i
-												? 0
-												: 1
-										}
-									>
-										<Text
-											textAlign="center"
-											fontWeight="medium"
-											fontSize={16}
-										>
-											{formatPhoneNumber(item)}
-										</Text>
-									</Pressable>
-								))}
-							</Modal.Body>
-							<Modal.Footer
-								justifyContent="center"
-								alignItems="center"
-								mt={2}
-								borderRadius={7}
-							>
-								<Pressable flex={1}>
-									<Text
-										color="blue.600"
-										fontSize={16}
-										fontWeight="medium"
-										textAlign="center"
-									>
-										Hủy
-									</Text>
-								</Pressable>
-							</Modal.Footer>
-						</Modal.Content>
-					</Modal>
+						<Actionsheet.Content borderTopRadius={0}>
+							<Box w="100%" p={4} justifyContent="center">
+								<Text
+									fontSize="16"
+									color="gray.500"
+									_dark={{
+										color: 'gray.300',
+									}}
+								>
+									Vui lòng chọn số
+								</Text>
+							</Box>
+							{data.phoneNumber.map(item => (
+								<Actionsheet.Item
+									key={item}
+									onPress={() => handlePressZalo(item)}
+								>
+									{formatPhoneNumber(item)}
+								</Actionsheet.Item>
+							))}
+						</Actionsheet.Content>
+					</Actionsheet>
 				</>
+			)}
+			{data && isLoaded && (
+				<MapComponent
+					isOpen={isMap}
+					onClose={onCloseMap}
+					{...data.coordinate}
+				/>
 			)}
 		</>
 	);

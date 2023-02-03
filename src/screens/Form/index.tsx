@@ -1,4 +1,9 @@
-import React, { FunctionComponent, useState, useContext } from 'react';
+import React, {
+	FunctionComponent,
+	useState,
+	useContext,
+	useEffect,
+} from 'react';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { RouteProp } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -26,13 +31,20 @@ import Background from '@assets/images/bg.png';
 import LogoLight from '@assets/images/logo-light.png';
 
 // Components
-import { FormComponent } from '@components';
+import { FormComponent, LoadingComponent } from '@components';
+
+// Context
+import { Context } from '@context';
 
 // Interfaces
-import type { ICompositeNavigationStacks, IStackParams } from '@interfaces';
+import type {
+	ICompositeNavigationStacks,
+	IStackParams,
+	IPostType,
+} from '@interfaces';
 
 // Type
-type FormType = 'sell' | 'rent' | 'request';
+type FormType = IPostType | 'request';
 
 // Props
 interface Props {
@@ -40,15 +52,32 @@ interface Props {
 	route: RouteProp<IStackParams, 'Form'>;
 }
 
-const Index: FunctionComponent<Props> = () => {
+const Index: FunctionComponent<Props> = ({ navigation, route }) => {
 	// States
-	const [type, setType] = useState<FormType>('sell');
+	const [type, setType] = useState<FormType>(() => route.params.type);
 
 	// Hooks
 	const insets = useSafeAreaInsets();
+	const { user } = useContext(Context);
+
+	// Effects
+	useEffect(() => {
+		if (!user) {
+			navigation.navigate('Login');
+		}
+	}, [user, navigation]);
 
 	// Handles
 	const handlePressFormType = (value: FormType) => setType(value);
+	const handlePressGoBack = () => {
+		if (navigation.canGoBack()) {
+			navigation.goBack();
+		} else {
+			navigation.navigate('Home');
+		}
+	};
+
+	if (!user) return <LoadingComponent />;
 
 	return (
 		<KeyboardAvoidingView
@@ -63,7 +92,9 @@ const Index: FunctionComponent<Props> = () => {
 				>
 					<Image
 						source={Background}
-						height={insets.top + 50}
+						height={
+							insets.top + (Platform.OS === 'android' ? 70 : 50)
+						}
 						alt="Create Product Background"
 					/>
 					<Center mt={-50} position="relative">
@@ -73,7 +104,11 @@ const Index: FunctionComponent<Props> = () => {
 							alt="logo"
 							style={{ aspectRatio: 226 / 50 }}
 						/>
-						<Pressable position="absolute" left={5}>
+						<Pressable
+							position="absolute"
+							left={5}
+							onPress={handlePressGoBack}
+						>
 							<Icon
 								as={MaterialCommunityIcons}
 								name="arrow-left"
@@ -158,7 +193,16 @@ const Index: FunctionComponent<Props> = () => {
 						</HStack>
 					</Box>
 					<Box mt={4} px={4} safeAreaBottom>
-						<FormComponent.Request />
+						{type === 'request' ? (
+							<FormComponent.Request navigation={navigation} />
+						) : (
+							<FormComponent.Post
+								status="create"
+								type={type}
+								fullName={user.fullName}
+								phoneNumber={user.phoneNumber}
+							/>
+						)}
 					</Box>
 				</ScrollView>
 			</TouchableWithoutFeedback>

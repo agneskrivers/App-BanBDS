@@ -1,9 +1,14 @@
 /* eslint-disable no-mixed-spaces-and-tabs */
-import React, { FunctionComponent, useState, useEffect, useRef } from 'react';
+import React, {
+	FunctionComponent,
+	useState,
+	useEffect,
+	useRef,
+	useContext,
+} from 'react';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import RenderHTML from 'react-native-render-html';
-import MapView, { Marker } from 'react-native-maps';
 import { RouteProp } from '@react-navigation/native';
 import Carousel, { Pagination } from 'react-native-snap-carousel';
 import {
@@ -14,6 +19,7 @@ import {
 	Share,
 	StatusBar,
 	StyleSheet,
+	Platform,
 } from 'react-native';
 import {
 	Box,
@@ -26,11 +32,28 @@ import {
 	Center,
 	Badge,
 	Skeleton,
-	Modal,
+	useDisclose,
 } from 'native-base';
 
+// Components
+import { MapComponent } from '@components';
+
+// Configs
+import { host } from '@configs';
+
+// Context
+import { Context } from '@context';
+
 // Helpers
-import { getName, getPricePerAcreage } from '@helpers';
+import {
+	getName,
+	getPricePerAcreage,
+	storages,
+	renewTokenDevice,
+} from '@helpers';
+
+// Services
+import services from '@services';
 
 // Interfaces
 import type {
@@ -44,9 +67,6 @@ interface Props {
 	navigation: ICompositeNavigationStacks<'Project'>;
 	route: RouteProp<IStackParams, 'Project'>;
 }
-
-// Demo
-import { project } from '../../../demo';
 
 const convertPrices = (min: number, max: number): string => {
 	let isBillion = false;
@@ -62,10 +82,9 @@ const convertPrices = (min: number, max: number): string => {
 	return `${convertMin} - ${convertMax} ${unit}`;
 };
 
-const Index: FunctionComponent<Props> = ({ navigation }) => {
+const Index: FunctionComponent<Props> = ({ navigation, route }) => {
 	// Constants
-	const { width: screenWidth, height: screenHeight } =
-		Dimensions.get('screen');
+	const { width: screenWidth } = Dimensions.get('screen');
 
 	// States
 	const [isScroll, setIsScroll] = useState<boolean>(false);
@@ -74,15 +93,102 @@ const Index: FunctionComponent<Props> = ({ navigation }) => {
 
 	const [index, setIndex] = useState<number>(0);
 
-	const [isModalMap, setIsModalMap] = useState<boolean>(false);
-
 	// Ref
 	const carouselRef = useRef<Carousel<string>>(null);
 
+	// Hooks
+	const { onNotification, isNetwork } = useContext(Context);
+	const { isOpen, onClose, onOpen } = useDisclose();
+
 	// Effects
 	useEffect(() => {
-		setData(project);
-	}, []);
+		const controller = new AbortController();
+
+		const getData = async (
+			signal: AbortSignal,
+			tokenDevice?: string,
+		): Promise<void> => {
+			let token: string | null | undefined = tokenDevice;
+
+			if (!token) {
+				token = await storages.get.str('device');
+			}
+
+			if (!token) {
+				token = await renewTokenDevice(signal);
+			}
+
+			if (!token) throw new Error('Error');
+
+			const result = await services.projects.info(
+				signal,
+				token,
+				route.params.projectID,
+			);
+
+			if (!result) {
+				onNotification(
+					'toast-screen-news-info-no-result',
+					'Máy chủ bị lỗi',
+					'Vui lòng thử lại sau',
+					'error',
+				);
+
+				setTimeout(() => navigation.navigate('Projects'), 1000);
+
+				return;
+			}
+
+			if (result === 'BadRequest') {
+				onNotification(
+					'toast-screen-news-info-bad-request',
+					'Lỗi tải tin',
+					undefined,
+					'warning',
+				);
+
+				setTimeout(() => navigation.navigate('Projects'), 1000);
+
+				return;
+			}
+
+			if (result === 'UnauthorizedDevice') {
+				const renewToken = await renewTokenDevice(signal);
+
+				if (!renewToken) {
+					onNotification(
+						'toast-screen-news-info-no-result',
+						'Máy chủ bị lỗi',
+						'Vui lòng thử lại sau',
+						'error',
+					);
+
+					setTimeout(() => navigation.navigate('Projects'), 1000);
+
+					return;
+				}
+
+				return getData(signal, renewToken);
+			}
+
+			setData(result);
+		};
+
+		if (isNetwork) {
+			getData(controller.signal);
+		} else {
+			onNotification(
+				'toast-screen-project-no-network',
+				'Vui lòng bật mạng!',
+				'Không có mạng',
+				'warning',
+			);
+
+			navigation.navigate('Home');
+		}
+
+		return () => controller.abort();
+	}, [isNetwork, onNotification, navigation, route]);
 
 	// Handles
 	const handleScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -97,9 +203,6 @@ const Index: FunctionComponent<Props> = ({ navigation }) => {
 		}
 	};
 	const handleSnapToItem = (value: number) => setIndex(value);
-
-	const handleOpenModalMap = () => setIsModalMap(true);
-	const handleCloseModalMap = () => setIsModalMap(false);
 
 	const handlePressImage = (e: GestureResponderEvent) => {
 		const halfScreen = screenWidth / 2;
@@ -122,9 +225,14 @@ const Index: FunctionComponent<Props> = ({ navigation }) => {
 		}
 	};
 	const handlePressShare = async (link: string) => {
+		const url = `${host}/${link}`;
+
 		await Share.share({
-			message: link,
+			url,
 		});
+	};
+	const handlePressAddress = () => {
+		if (data) return onOpen();
 	};
 
 	return (
@@ -143,6 +251,7 @@ const Index: FunctionComponent<Props> = ({ navigation }) => {
 					borderBottomColor="gray.200"
 					borderBottomWidth={isScroll ? 1 : 0}
 					safeAreaTop
+					pt={Platform.OS === 'android' ? 4 : 0}
 				>
 					<Pressable
 						p={1}
@@ -192,7 +301,9 @@ const Index: FunctionComponent<Props> = ({ navigation }) => {
 									renderItem={({ item }) => (
 										<Pressable onPress={handlePressImage}>
 											<Image
-												source={{ uri: item }}
+												source={{
+													uri: `${host}/images/projects/${item}`,
+												}}
 												resizeMode="cover"
 												h={250}
 												w={screenWidth}
@@ -242,9 +353,9 @@ const Index: FunctionComponent<Props> = ({ navigation }) => {
 										</Text>
 										<Badge
 											colorScheme={
-												project.status === 'onSale'
+												data.status === 'onSale'
 													? 'success'
-													: project.status ===
+													: data.status ===
 													  'handedOver'
 													? 'danger'
 													: 'primary'
@@ -273,7 +384,7 @@ const Index: FunctionComponent<Props> = ({ navigation }) => {
 								mt={2}
 							>
 								{data && (
-									<Pressable onPress={handleOpenModalMap}>
+									<Pressable onPress={handlePressAddress}>
 										<HStack mt={2} alignItems="center">
 											<Icon
 												as={MaterialIcons}
@@ -291,7 +402,7 @@ const Index: FunctionComponent<Props> = ({ navigation }) => {
 												numberOfLines={2}
 												flex={1}
 											>
-												{project.address}
+												{data.address}
 											</Text>
 										</HStack>
 									</Pressable>
@@ -434,10 +545,13 @@ const Index: FunctionComponent<Props> = ({ navigation }) => {
 						>
 							{data.investor.avatar && (
 								<Image
-									source={{ uri: data.investor.avatar }}
+									source={{
+										uri: `${host}/images/avatars/${data.investor.avatar}`,
+									}}
 									w={70}
 									h={70}
 									resizeMethod="resize"
+									resizeMode="contain"
 									mr={2}
 									alt={`Avatar ${data.investor.name}`}
 								/>
@@ -455,35 +569,11 @@ const Index: FunctionComponent<Props> = ({ navigation }) => {
 				</ScrollView>
 			</Box>
 			{data && (
-				<Modal
-					isOpen={isModalMap}
-					onClose={handleCloseModalMap}
-					size="xl"
-				>
-					<Modal.Content>
-						<Modal.Body p={0}>
-							<MapView
-								initialRegion={{
-									latitude: data.coordinate.latitude,
-									longitude: data.coordinate.longitude,
-									latitudeDelta: 0.1,
-									longitudeDelta: 0.1,
-								}}
-								style={{
-									width: screenWidth * 0.9,
-									height: screenHeight * 0.6,
-								}}
-							>
-								<Marker
-									coordinate={{
-										latitude: data.coordinate.latitude,
-										longitude: data.coordinate.longitude,
-									}}
-								/>
-							</MapView>
-						</Modal.Body>
-					</Modal.Content>
-				</Modal>
+				<MapComponent
+					isOpen={isOpen}
+					onClose={onClose}
+					{...data.coordinate}
+				/>
 			)}
 		</>
 	);

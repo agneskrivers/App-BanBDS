@@ -1,4 +1,10 @@
-import React, { FunctionComponent, useState, useRef } from 'react';
+import React, {
+	FunctionComponent,
+	useState,
+	useRef,
+	useContext,
+	useEffect,
+} from 'react';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { RouteProp } from '@react-navigation/native';
 import {
@@ -16,13 +22,22 @@ import {
 	Icon,
 	Button,
 	AlertDialog,
-	useToast,
 	ScrollView,
 	KeyboardAvoidingView,
+	useDisclose,
 } from 'native-base';
 
 // Components
-import { FormComponent, LoadingComponent } from '@components';
+import { FormComponent } from '@components';
+
+// Context
+import { Context } from '@context';
+
+// Helpers
+import { storages, renewTokenDevice } from '@helpers';
+
+// Services
+import services from '@services';
 
 // Interfaces
 import type { ICompositeNavigationStacks, IStackParams } from '@interfaces';
@@ -35,18 +50,158 @@ interface Props {
 
 const Index: FunctionComponent<Props> = ({ navigation, route }) => {
 	// States
-	const [isAlertRemove, setIsAlertRemove] = useState<boolean>(false);
-	const [isAlertSold, setIsAlertSold] = useState<boolean>(false);
+	const [isRemove, setIsRemove] = useState<boolean>(false);
 
 	// Ref
 	const buttonCancelRemoveRef = useRef<ButtonNative>(null);
-	const buttonCancelSoldRef = useRef<ButtonNative>(null);
+
+	// Context
+	const { onNotification, isNetwork } = useContext(Context);
+	const { isOpen, onOpen, onClose } = useDisclose();
+
+	// Effects
+	useEffect(() => {
+		const controller = new AbortController();
+
+		const getData = async (
+			signal: AbortSignal,
+			postID: number,
+			tokenDevice?: string,
+		): Promise<void> => {
+			const user = await storages.get.str('user');
+
+			if (!user) {
+				setIsRemove(false);
+
+				onNotification(
+					'toast-screen-edit-post-no-user-token',
+					'Không thể thực hiện',
+					undefined,
+					'error',
+				);
+
+				navigation.navigate('Home');
+
+				return;
+			}
+
+			let device: string | undefined | null = tokenDevice;
+
+			if (!device) {
+				device = await storages.get.str('device');
+			}
+
+			if (!device) {
+				device = await renewTokenDevice(signal);
+			}
+
+			if (!device) throw new Error();
+
+			const result = await services.posts.remove(
+				signal,
+				device,
+				user,
+				postID,
+			);
+
+			if (!result) throw new Error();
+
+			if (result === 'UnauthorizedUser') {
+				setIsRemove(false);
+
+				onNotification(
+					'toast-screen-edit-post-no-user-token',
+					'Không thể thực hiện',
+					undefined,
+					'error',
+				);
+
+				navigation.navigate('Home');
+
+				return;
+			}
+
+			if (result === 'UnauthorizedDevice') {
+				if (tokenDevice) throw new Error();
+
+				const renewToken = await renewTokenDevice(signal);
+
+				if (!renewToken) throw new Error();
+
+				return getData(signal, postID, renewToken);
+			}
+
+			if (result === 'BadRequest') {
+				setIsRemove(false);
+
+				onNotification(
+					'toast-screen-edit-post-remove-bad-request',
+					'Vui lòng thử lại sau!',
+					'Có lỗi xảy ra',
+					'warning',
+				);
+
+				return;
+			}
+
+			setIsRemove(false);
+
+			onNotification(
+				'toast-screen-edit-post-remove-success',
+				'Xóa thành công',
+			);
+
+			navigation.navigate('MyPosts', { status: 'accept' });
+		};
+
+		if (isRemove) {
+			if (isNetwork) {
+				getData(controller.signal, route.params.data.postID)
+					.catch(() => {
+						setIsRemove(false);
+
+						onNotification(
+							'toast-screen-edit-post-error',
+							'Vui lòng thử lại sau!',
+							'Máy chủ bị lỗi',
+							'error',
+						);
+					})
+					.finally(() => onClose());
+			} else {
+				setIsRemove(false);
+				onClose();
+
+				onNotification(
+					'toast-screen-edit-post-no-network',
+					'Vui lòng kết nối mạng!',
+					'Không có mạng',
+					'warning',
+				);
+			}
+		}
+
+		return () => controller.abort();
+	}, [isNetwork, isRemove, navigation, route, onNotification, onClose]);
 
 	// Handles
-	const handlePressOpenAlertRemove = () => setIsAlertRemove(true);
-	const handlePressCloseAlertRemove = () => setIsAlertRemove(false);
-	const handlePressOpenAlertSold = () => setIsAlertSold(true);
-	const handlePressCloseAlertSold = () => setIsAlertSold(false);
+	const handlePressRemove = () => onOpen();
+
+	const handlePressAcceptRemove = () => {
+		setIsRemove(true);
+	};
+	const handlePressGoBack = () => {
+		if (navigation.canGoBack()) {
+			navigation.goBack();
+		} else {
+			navigation.navigate('MyPosts', {
+				status:
+					route.params.data.status === 'sold'
+						? 'accept'
+						: route.params.data.status,
+			});
+		}
+	};
 
 	return (
 		<>
@@ -63,12 +218,12 @@ const Index: FunctionComponent<Props> = ({ navigation, route }) => {
 							safeAreaTop
 							px={4}
 							pb={4}
+							pt={Platform.OS === 'android' ? 4 : 0}
 							borderBottomColor="gray.300"
 							borderBottomWidth={1}
-							mb={4}
 						>
 							<HStack alignItems="center">
-								<Pressable>
+								<Pressable onPress={handlePressGoBack}>
 									<Icon
 										as={MaterialCommunityIcons}
 										name="arrow-left"
@@ -84,7 +239,7 @@ const Index: FunctionComponent<Props> = ({ navigation, route }) => {
 									Chỉnh sửa tin
 								</Text>
 							</HStack>
-							<Pressable onPress={handlePressOpenAlertRemove}>
+							<Pressable onPress={handlePressRemove}>
 								<Icon
 									as={MaterialCommunityIcons}
 									name="trash-can-outline"
@@ -97,11 +252,11 @@ const Index: FunctionComponent<Props> = ({ navigation, route }) => {
 							showsHorizontalScrollIndicator={false}
 							showsVerticalScrollIndicator={false}
 							px={4}
+							flex={1}
 						>
 							<FormComponent.Post
 								status="edit"
 								data={route.params.data}
-								onSold={handlePressOpenAlertSold}
 							/>
 						</ScrollView>
 					</Box>
@@ -109,8 +264,8 @@ const Index: FunctionComponent<Props> = ({ navigation, route }) => {
 			</KeyboardAvoidingView>
 			<AlertDialog
 				leastDestructiveRef={buttonCancelRemoveRef}
-				isOpen={isAlertRemove}
-				onClose={handlePressCloseAlertRemove}
+				isOpen={isOpen}
+				onClose={onClose}
 			>
 				<AlertDialog.Content>
 					<AlertDialog.CloseButton />
@@ -123,54 +278,21 @@ const Index: FunctionComponent<Props> = ({ navigation, route }) => {
 							<Button
 								variant="unstyled"
 								colorScheme="coolGray"
-								onPress={handlePressCloseAlertRemove}
+								onPress={onClose}
 								ref={buttonCancelRemoveRef}
 							>
 								Hủy
 							</Button>
 							<Button
 								colorScheme="danger"
-								onPress={handlePressCloseAlertRemove}
+								onPress={handlePressAcceptRemove}
 								_text={{
 									fontWeight: 'medium',
 								}}
+								isLoading={isRemove}
+								isLoadingText="Vui lòng chờ"
 							>
-								Xóa
-							</Button>
-						</Button.Group>
-					</AlertDialog.Footer>
-				</AlertDialog.Content>
-			</AlertDialog>
-			<AlertDialog
-				leastDestructiveRef={buttonCancelSoldRef}
-				isOpen={isAlertSold}
-				onClose={handlePressCloseAlertSold}
-			>
-				<AlertDialog.Content>
-					<AlertDialog.CloseButton />
-					<AlertDialog.Header>Tin đăng đã bán</AlertDialog.Header>
-					<AlertDialog.Body>
-						Bạn xác nhận tin đăng này đã bán và tin đăng này sẽ
-						không hiện lên trang nữa?
-					</AlertDialog.Body>
-					<AlertDialog.Footer>
-						<Button.Group space={2}>
-							<Button
-								variant="unstyled"
-								colorScheme="coolGray"
-								onPress={handlePressCloseAlertSold}
-								ref={buttonCancelSoldRef}
-							>
-								Hủy
-							</Button>
-							<Button
-								colorScheme="success"
-								onPress={handlePressCloseAlertSold}
-								_text={{
-									fontWeight: 'medium',
-								}}
-							>
-								Đã bán
+								Xác nhận
 							</Button>
 						</Button.Group>
 					</AlertDialog.Footer>

@@ -1,9 +1,13 @@
-import React, { FunctionComponent, useEffect, useState, useRef } from 'react';
+import React, {
+	FunctionComponent,
+	useEffect,
+	useState,
+	useRef,
+	useContext,
+} from 'react';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
-import AntDesign from 'react-native-vector-icons/AntDesign';
 import Carousel, { Pagination } from 'react-native-snap-carousel';
-import MapView, { Marker } from 'react-native-maps';
 import YoutubeIframe from 'react-native-youtube-iframe';
 import { format } from 'date-fns';
 import { RouteProp } from '@react-navigation/native';
@@ -12,11 +16,10 @@ import {
 	GestureResponderEvent,
 	NativeSyntheticEvent,
 	NativeScrollEvent,
-	Linking,
-	Share,
-	Alert,
 	StatusBar,
 	StyleSheet,
+	LayoutChangeEvent,
+	Platform,
 } from 'react-native';
 import {
 	Box,
@@ -27,13 +30,31 @@ import {
 	Pressable,
 	HStack,
 	Button,
-	Modal,
 	Skeleton,
 	Center,
+	useDisclose,
 } from 'native-base';
 
+// Component
+import { MapComponent } from '@components';
+
+// Configs
+import { host } from '@configs';
+
+// Context
+import { Context } from '@context';
+
 // Helpers
-import { getName, getPricePerAcreage, formatPhoneNumber } from '@helpers';
+import {
+	getName,
+	getPricePerAcreage,
+	formatPhoneNumber,
+	storages,
+	renewTokenDevice,
+} from '@helpers';
+
+// Services
+import services from '@services';
 
 // Interfaces
 import type {
@@ -48,16 +69,14 @@ interface Props {
 	route: RouteProp<IStackParams, 'MyPost'>;
 }
 
-// Demo
-import { myPost } from '../../../demo';
-
 const Index: FunctionComponent<Props> = ({ navigation, route }) => {
 	// Constants
-	const { width: screenWidth, height: screenHeight } =
-		Dimensions.get('screen');
+	const { width: screenWidth } = Dimensions.get('screen');
 
 	// States
 	const [isScroll, setIsScroll] = useState<boolean>(false);
+	const [isHeight, setIsHeight] = useState<boolean>(true);
+	const [isLoadMore, setIsLoadMore] = useState<boolean>(false);
 
 	const [data, setData] = useState<IMyPostInfo | null>(null);
 	const [index, setIndex] = useState<number>(0);
@@ -65,18 +84,180 @@ const Index: FunctionComponent<Props> = ({ navigation, route }) => {
 	// Ref
 	const carouselRef = useRef<Carousel<string>>(null);
 
+	// Hooks
+	const { onClose, onOpen, isOpen } = useDisclose();
+	const { isNetwork, onLogout, onNotification } = useContext(Context);
+
 	// Effects
 	useEffect(() => {
-		const getData = async () => {
-			setTimeout(() => {
-				setData(myPost);
-			}, 2000);
+		const controller = new AbortController();
+
+		const getData = async (
+			signal: AbortSignal,
+			postID: number,
+			tokenDevice?: string,
+		): Promise<void> => {
+			let device: string | undefined | null = tokenDevice;
+
+			if (!device) {
+				device = await storages.get.str('device');
+			}
+
+			if (!device) {
+				device = await renewTokenDevice(signal);
+			}
+
+			if (!device) throw new Error();
+
+			const user = await storages.get.str('user');
+
+			if (!user) {
+				onNotification(
+					'toast-screen-my-post-no-user-token',
+					'Không thể thực hiện!',
+					undefined,
+					'warning',
+				);
+
+				onLogout();
+
+				setTimeout(() => navigation.navigate('Login'), 500);
+
+				return;
+			}
+
+			const result = await services.posts.myPostInfo(
+				signal,
+				device,
+				user,
+				postID,
+			);
+
+			if (!result) throw new Error();
+
+			if (result === 'UnauthorizedDevice') {
+				if (tokenDevice) throw new Error();
+
+				const renewToken = await renewTokenDevice(signal);
+
+				if (!renewToken) throw new Error();
+
+				return getData(signal, postID, renewToken);
+			}
+
+			if (result === 'UnauthorizedUser') {
+				onNotification(
+					'toast-screen-my-post-no-user-token',
+					'Không thể thực hiện!',
+					undefined,
+					'warning',
+				);
+
+				onLogout();
+
+				setTimeout(() => navigation.navigate('Login'), 500);
+
+				return;
+			}
+
+			if (result === 'BadRequest') {
+				onNotification(
+					'toast-screen-my-post-result-bad-request',
+					'Có vấn đề xảy ra!',
+					undefined,
+					'warning',
+				);
+
+				if (navigation.canGoBack()) {
+					navigation.goBack();
+				} else {
+					navigation.navigate('Account');
+				}
+
+				return;
+			}
+
+			setData(result);
 		};
 
-		getData();
-	}, []);
+		if (!data) {
+			if (isNetwork) {
+				getData(controller.signal, route.params.postID).catch(() => {
+					onNotification(
+						'toast-screen-my-post-error',
+						'Vui lòng thử lại sau!',
+						'Máy chủ bị lỗi',
+						'error',
+					);
+
+					navigation.navigate('Account');
+				});
+			} else {
+				onNotification(
+					'toast-screen-my-post-no-network',
+					'Vui lòng kết nối mạng!',
+					'Không có mạng',
+					'warning',
+				);
+
+				navigation.navigate('Home');
+			}
+		}
+
+		return () => controller.abort();
+	}, [
+		data,
+		isNetwork,
+		navigation,
+		onLogout,
+		onNotification,
+		route.params.postID,
+	]);
 
 	// Handles
+	const handleScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+		const { y } = e.nativeEvent.contentOffset;
+
+		if (y >= 175 && !isScroll) {
+			setIsScroll(true);
+		}
+
+		if (y < 175 && isScroll) {
+			setIsScroll(false);
+		}
+	};
+	const handleSnapToItem = (value: number) => setIndex(value);
+	const handleTouchEnd = (e: GestureResponderEvent) => {
+		if (data && carouselRef && carouselRef.current) {
+			const width = screenWidth / 2;
+
+			const location = e.nativeEvent.locationX;
+
+			let newIndex = index + (location > width ? 1 : -1);
+
+			if (newIndex < 0) {
+				newIndex = data.images.length - 1;
+			}
+
+			if (newIndex >= data.images.length) {
+				newIndex = 0;
+			}
+
+			setIndex(newIndex);
+
+			carouselRef.current.snapToItem(newIndex);
+		}
+	};
+	const handleLayoutContent = (e: LayoutChangeEvent) => {
+		const { height } = e.nativeEvent.layout;
+
+		const minHeight = 14 * 1.75 * 6;
+
+		if (height <= minHeight && isHeight) {
+			setIsHeight(false);
+		}
+	};
+
 	const handlePressEdit = () => {
 		if (data) {
 			navigation.navigate('EditPost', {
@@ -84,14 +265,27 @@ const Index: FunctionComponent<Props> = ({ navigation, route }) => {
 			});
 		}
 	};
+	const handlePressClose = () => {
+		if (navigation.canGoBack()) {
+			navigation.goBack();
+		} else {
+			navigation.navigate('Account');
+		}
+	};
+	const handlePressAddress = () => {
+		if (data) return onOpen();
+	};
+	const handlePressLoadMore = () =>
+		setIsLoadMore(preIsLoadMore => !preIsLoadMore);
 
 	return (
 		<>
-			<StatusBar barStyle="dark-content" />
+			<StatusBar barStyle={isScroll ? 'dark-content' : 'light-content'} />
 			<Box flex={1} bg="white" safeAreaBottom position="relative">
 				<HStack
 					px={4}
 					pb={4}
+					pt={Platform.OS === 'android' ? 4 : 0}
 					zIndex={2}
 					justifyContent="space-between"
 					position="absolute"
@@ -108,6 +302,7 @@ const Index: FunctionComponent<Props> = ({ navigation, route }) => {
 						background={
 							isScroll || !data ? 'transparent' : '#0000008a'
 						}
+						onPress={handlePressClose}
 					>
 						<Icon
 							as={MaterialCommunityIcons}
@@ -116,26 +311,13 @@ const Index: FunctionComponent<Props> = ({ navigation, route }) => {
 							size={isScroll || !data ? 'lg' : 'md'}
 						/>
 					</Pressable>
-					{data && (
-						<Pressable
-							p={1}
-							rounded="full"
-							background={isScroll ? 'transparent' : '#0000008a'}
-						>
-							<Icon
-								as={MaterialCommunityIcons}
-								name="share-variant"
-								color={isScroll ? 'muted.500' : 'white'}
-								size={isScroll ? 'lg' : 'md'}
-							/>
-						</Pressable>
-					)}
 				</HStack>
 				<ScrollView
 					showsVerticalScrollIndicator={false}
 					showsHorizontalScrollIndicator={false}
 					scrollEventThrottle={1}
 					bgColor="white"
+					onScroll={handleScroll}
 				>
 					<Skeleton h={250} isLoaded={data !== null}>
 						{data && (
@@ -148,7 +330,9 @@ const Index: FunctionComponent<Props> = ({ navigation, route }) => {
 									renderItem={({ item }) => (
 										<Pressable>
 											<Image
-												source={{ uri: item }}
+												source={{
+													uri: `${host}/images/posts/${item}`,
+												}}
 												resizeMode="cover"
 												h={250}
 												w={screenWidth}
@@ -157,6 +341,8 @@ const Index: FunctionComponent<Props> = ({ navigation, route }) => {
 										</Pressable>
 									)}
 									vertical={false}
+									onSnapToItem={handleSnapToItem}
+									onTouchEnd={handleTouchEnd}
 								/>
 								<Box zIndex={2} position="absolute" bottom={0}>
 									<Pagination
@@ -207,7 +393,7 @@ const Index: FunctionComponent<Props> = ({ navigation, route }) => {
 								mt={2}
 							>
 								{data && (
-									<Pressable>
+									<Pressable onPress={handlePressAddress}>
 										<HStack mt={2} alignItems="center">
 											<Icon
 												as={MaterialIcons}
@@ -307,34 +493,50 @@ const Index: FunctionComponent<Props> = ({ navigation, route }) => {
 										<Text
 											mt={data.video ? 2 : 0}
 											lineHeight="xl"
-											numberOfLines={6}
+											numberOfLines={
+												!isHeight
+													? undefined
+													: isLoadMore
+													? undefined
+													: 6
+											}
+											onLayout={handleLayoutContent}
 										>
 											{`${decodeURI(data.content)}`}
 										</Text>
-										<Button
-											variant="outline"
-											mt={6}
-											borderColor="info.600"
-											_pressed={{
-												backgroundColor: 'info.300',
-											}}
-										>
-											<HStack alignItems="center">
-												<Text
-													fontSize={16}
-													fontWeight="medium"
-													color="info.600"
-												>
-													Xem thêm
-												</Text>
-												<Icon
-													as={MaterialIcons}
-													name="keyboard-arrow-up"
-													size="md"
-													color="info.600"
-												/>
-											</HStack>
-										</Button>
+										{isHeight && (
+											<Button
+												variant="outline"
+												mt={6}
+												borderColor="info.600"
+												_pressed={{
+													backgroundColor: 'info.300',
+												}}
+												onPress={handlePressLoadMore}
+											>
+												<HStack alignItems="center">
+													<Text
+														fontSize={16}
+														fontWeight="medium"
+														color="info.600"
+													>
+														{isLoadMore
+															? 'Thu gọn'
+															: 'Xem thêm'}
+													</Text>
+													<Icon
+														as={MaterialIcons}
+														name={`keyboard-arrow-${
+															isLoadMore
+																? 'down'
+																: 'up'
+														}`}
+														size="md"
+														color="info.600"
+													/>
+												</HStack>
+											</Button>
+										)}
 									</>
 								)}
 							</Skeleton.Text>
@@ -591,7 +793,7 @@ const Index: FunctionComponent<Props> = ({ navigation, route }) => {
 				{data && (
 					<HStack
 						p={4}
-						pb={0}
+						pb={Platform.OS === 'android' ? 4 : 0}
 						alignItems="center"
 						borderTopColor="gray.200"
 						borderTopWidth={1}
@@ -623,101 +825,11 @@ const Index: FunctionComponent<Props> = ({ navigation, route }) => {
 				)}
 			</Box>
 			{data && (
-				<>
-					<Modal
-						isOpen={false}
-						animationPreset="slide"
-						size="full"
-						px={4}
-					>
-						<Modal.Content
-							bgColor="transparent"
-							mb={1}
-							safeAreaBottom
-							mt="auto"
-							shadow="none"
-						>
-							<Modal.Body
-								m={0}
-								p={0}
-								backgroundColor="white"
-								borderRadius={7}
-							>
-								<Pressable
-									flex={1}
-									py={4}
-									borderBottomColor="gray.200"
-									borderBottomWidth={1}
-								>
-									<Text
-										textAlign="center"
-										fontWeight="medium"
-										fontSize={16}
-									>
-										Lưu Ảnh
-									</Text>
-								</Pressable>
-								<Pressable flex={1} py={4}>
-									<Text
-										textAlign="center"
-										fontWeight="medium"
-										fontSize={16}
-									>
-										Sao chép liên kết
-									</Text>
-								</Pressable>
-							</Modal.Body>
-							<Modal.Footer
-								justifyContent="center"
-								alignItems="center"
-								mt={2}
-								borderRadius={7}
-							>
-								<Pressable flex={1}>
-									<Text
-										color="blue.600"
-										fontSize={16}
-										fontWeight="medium"
-										textAlign="center"
-									>
-										Hủy
-									</Text>
-								</Pressable>
-							</Modal.Footer>
-						</Modal.Content>
-					</Modal>
-					<Modal isOpen={false} size="xl">
-						<Modal.Content>
-							<Modal.Body p={0}>
-								<MapView
-									initialRegion={{
-										latitude:
-											data.location.coordinate.latitude,
-										longitude:
-											data.location.coordinate.longitude,
-										latitudeDelta: 0.1,
-										longitudeDelta: 0.1,
-									}}
-									style={{
-										width: screenWidth * 0.9,
-										height: screenHeight * 0.6,
-									}}
-								>
-									<Marker
-										coordinate={{
-											latitude:
-												data.location.coordinate
-													.latitude,
-											longitude:
-												data.location.coordinate
-													.longitude,
-										}}
-									/>
-								</MapView>
-							</Modal.Body>
-						</Modal.Content>
-					</Modal>
-				</>
+				<MapComponent
+					isOpen={isOpen}
+					onClose={onClose}
+					{...data.location.coordinate}
+				/>
 			)}
 		</>
 	);
