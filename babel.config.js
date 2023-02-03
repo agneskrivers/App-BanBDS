@@ -21,6 +21,7 @@ module.exports = {
 					'@helpers': './src/helpers',
 					'@navigation': './src/navigation',
 					'@screens': './src/screens',
+					'@services': './src/services',
 					'@utils': './src/utils',
 				},
 			},
