@@ -1,3 +1,5 @@
+import Config from 'react-native-config';
+
 // Assets
 import LeasePNG from '@assets/images/lease.png';
 import PurchasePNG from '@assets/images/purchase.png';
@@ -10,17 +12,67 @@ import type {
 	IPostCompact,
 	IBottomTabRouters,
 	INewsCompact,
-	IHotNewsCompact,
 	ISort,
 	IFilter,
 } from '@interfaces';
 
-const newsCompactDefault: INewsCompact = {
-	createdAt: Date.now(),
-	id: '1',
-	thumbnail: '',
+const listID = [
+	'63dc8046fc13ae47f20000c8',
+	'63dc8046fc13ae47f20000c9',
+	'63dc8046fc13ae47f20000ca',
+	'63dc8046fc13ae47f20000cb',
+	'63dc8046fc13ae47f20000cc',
+	'63dc8046fc13ae47f20000cd',
+	'63dc8046fc13ae47f20000ce',
+	'63dc8046fc13ae47f20000cf',
+	'63dc8046fc13ae47f20000d0',
+	'63dc8046fc13ae47f20000d1',
+];
+
+const postCompactDefault: IPostCompact = {
+	id: '',
+	acreages: 0,
+	address: '',
+	category: 'apartment',
+	direction: 'east',
+	image: '',
+	isVideo: false,
+	legal: 'book',
+	postID: 0,
+	prices: 0,
 	title: '',
 };
+const newsCompactDefault: INewsCompact = {
+	createdAt: 0,
+	id: '',
+	thumbnail:
+		'https://claimether.com/_next/image?url=%2Fimages%2Flogo.webp&w=96&q=75',
+	title: '',
+};
+const projectCompactDefault: IProjectCompact = {
+	acreages: '',
+	address: '',
+	company: '',
+	prices: null,
+	image: '',
+	projectID: 0,
+	status: 'openingSoon',
+	title: '',
+	type: 'apartment',
+	id: '',
+};
+
+// ENV
+export const GoogleApiKey = Config.GOOGLE_API_KEY as string;
+export const host = Config.API_URI as string;
+export const LimitFailed = parseInt(Config.LIMIT_FAILED as string, 10);
+export const LimitRenew = parseInt(Config.LIMIT_RENEW as string, 10);
+export const NumberRepeatUpdate = parseInt(
+	Config.NUMBER_REPEAT_UPDATE as string,
+	10,
+);
+export const LinkDefault = Config.LINK_DEFAULT as string;
+export const WebsiteNameDefault = Config.WEBSITE_NAME_DEFAULT as string;
 
 export const HomeMenus: HomeMenu[] = [
 	{
@@ -36,7 +88,7 @@ export const HomeMenus: HomeMenu[] = [
 	{
 		icon: TransferPNG,
 		content: 'Cần Mua',
-		type: 'needToBuy',
+		type: 'request',
 	},
 ];
 export const BottomTabRouters: IBottomTabRouters = {
@@ -376,54 +428,21 @@ export const FilterPrices: IFilter[] = [
 	},
 ];
 
-export const ProjectCompactDefault: IProjectCompact = {
-	acreages: '6,466 m²',
-	address:
-		'Đại lộ Ánh Trăng, KĐT An Lạc Green Symphony, xã An Khánh, huyện Hoài Đức, Hà Nội',
-	company: 'Công ty CP Đầu tư An Lạc',
-	prices: null,
-	image: 'https://file4.batdongsan.com.vn/2022/12/05/20221205103410-e262_wm.jpg',
-	projectID: 1,
-	status: 'openingSoon',
-	title: 'Moonlight I - An Lạc Green Symphony',
-	type: 'apartment',
-};
-export const PostCompactDefault: IPostCompact = {
-	acreages: 180,
-	address:
-		'Dự án Vinhomes Central Park, Đường Điện Biên Phủ, Phường 22, Bình Thạnh, Hồ Chí Minh',
-	category: 'apartment',
-	direction: 'east',
-	image: 'https://file4.batdongsan.com.vn/resize/1275x717/2022/11/28/20221128130456-c084_wm.jpg',
-	isVideo: true,
-	legal: 'book',
-	postID: 0,
-	prices: 27000,
-	title: 'BÁN CĂN HỘ VINHOMES CENTRAL PARK',
-};
-export const HotNewsCompactDefault: IHotNewsCompact = {
-	description: '',
-	id: '11',
-	thumbnail: '',
-	title: '',
-};
 export const ListProjectCompactDefault: IProjectCompact[] = Array.from(
 	Array(10).keys(),
 ).map(key => ({
-	...ProjectCompactDefault,
-	projectID: key,
+	...projectCompactDefault,
+	id: `project-${listID[key]}`,
 }));
 export const ListPostCompactDefault: IPostCompact[] = Array.from(
 	Array(10).keys(),
 ).map(key => ({
-	...PostCompactDefault,
-	postID: key,
+	...postCompactDefault,
+	id: `post-${listID[key]}`,
 }));
 export const ListNewsCompactDefault: INewsCompact[] = Array.from(
 	Array(10).keys(),
 ).map(key => ({
 	...newsCompactDefault,
-	id: (Math.floor(Math.random() * Math.pow(10, 6)) + key).toString(),
+	id: `news-${listID[key]}`,
 }));
-
-export const host = '';
