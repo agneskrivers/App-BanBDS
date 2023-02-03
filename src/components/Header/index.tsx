@@ -1,12 +1,15 @@
-import React, { FunctionComponent } from 'react';
+import React, { FunctionComponent, useContext } from 'react';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { HStack, Box, Image, Select, Icon } from 'native-base';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { StatusBar } from 'react-native';
+import { StatusBar, Platform } from 'react-native';
 
 // Assets
 import BgBorder from '@assets/images/bg-border.png';
 import LogoLight from '@assets/images/logo-light.png';
+
+// Context
+import { Context } from '@context';
 
 // Props
 interface Props {
@@ -18,6 +21,10 @@ interface Props {
 const Index: FunctionComponent<Props> = ({ children, isDark }) => {
 	// Hooks
 	const insets = useSafeAreaInsets();
+	const { regions, location, onLocation } = useContext(Context);
+
+	// Handle
+	const handleSelectRegion = (value: string) => onLocation(value);
 
 	return (
 		<>
@@ -32,7 +39,7 @@ const Index: FunctionComponent<Props> = ({ children, isDark }) => {
 				alt="BanBds Background"
 			/>
 			<HStack
-				mt={-200 + insets.top}
+				mt={-200 + (Platform.OS === 'ios' ? insets.top : 0)}
 				px={4}
 				py={2}
 				mb={4}
@@ -62,11 +69,18 @@ const Index: FunctionComponent<Props> = ({ children, isDark }) => {
 							mr={1}
 						/>
 					}
-					defaultValue="HN"
+					selectedValue={location}
+					onValueChange={handleSelectRegion}
 				>
-					<Select.Item value="HN" label="Hà Nội" />
-					<Select.Item value="HCM" label="Hồ Chí Minh" />
-					<Select.Item value="BN" label="Bắc Ninh" />
+					{[...regions]
+						.sort((a, b) => a.serial - b.serial)
+						.map(region => (
+							<Select.Item
+								key={region.id}
+								value={region.regionID}
+								label={region.name}
+							/>
+						))}
 				</Select>
 			</HStack>
 			<Box justifyContent="center" alignItems="center">
