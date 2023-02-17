@@ -188,7 +188,7 @@ const Index: FunctionComponent<Props> = ({ navigation, route }) => {
 					showsVerticalScrollIndicator={false}
 					flexShrink={1}
 				>
-					<Box safeAreaBottom>
+					<Box safeAreaBottom pb={4}>
 						<Text
 							color="muted.400"
 							fontSize={12}
