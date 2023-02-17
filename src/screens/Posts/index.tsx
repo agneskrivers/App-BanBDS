@@ -1096,6 +1096,7 @@ const Index: FunctionComponent<Props> = ({ navigation, route }) => {
 								<PostComponent
 									data={item}
 									isLoaded={isLoaded && !isLoading}
+									type={type}
 								/>
 							</Pressable>
 						)}

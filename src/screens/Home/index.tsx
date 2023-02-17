@@ -463,6 +463,7 @@ const Index: FunctionComponent<Props> = ({ navigation }) => {
 									isLoaded &&
 									totals !== null
 								}
+								type="sell"
 							/>
 						</Pressable>
 					))}
