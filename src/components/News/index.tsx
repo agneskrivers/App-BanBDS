@@ -2,6 +2,9 @@ import React, { FunctionComponent } from 'react';
 import { Image, Box, Text, Skeleton } from 'native-base';
 import { format } from 'date-fns';
 
+// Configs
+import { host } from '@configs';
+
 // Interfaces
 import type { INewsCompact } from '@interfaces';
 
@@ -28,7 +31,7 @@ const Index: FunctionComponent<Props> = ({ data, isLoaded, isFirst }) => {
 				<Image
 					borderRadius="xl"
 					source={{
-						uri: thumbnail,
+						uri: `${host}/images/news/${thumbnail}`,
 					}}
 					width={isFirst && isLoaded ? '100%' : 150}
 					height={isFirst && isLoaded ? 200 : 100}
