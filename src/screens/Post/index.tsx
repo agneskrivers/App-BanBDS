@@ -323,8 +323,7 @@ const Index: FunctionComponent<Props> = ({ navigation, route }) => {
 		}
 
 		if (data) {
-			console.log(data.phoneNumber);
-			if (data.phoneNumber.length > 0) return handleOpenPhoneNumber();
+			if (data.phoneNumber.length > 1) return handleOpenPhoneNumber();
 
 			return Linking.openURL(`tel:${data.phoneNumber[0]}`);
 		}
@@ -339,7 +338,7 @@ const Index: FunctionComponent<Props> = ({ navigation, route }) => {
 		}
 
 		if (data) {
-			if (data.phoneNumber.length > 0) return handleOpenZalo();
+			if (data.phoneNumber.length > 1) return handleOpenZalo();
 
 			return Linking.openURL(`https://zalo.me/${data.phoneNumber[0]}`);
 		}
@@ -748,8 +747,8 @@ const Index: FunctionComponent<Props> = ({ navigation, route }) => {
 														as={MaterialIcons}
 														name={`keyboard-arrow-${
 															isLoadMore
-																? 'down'
-																: 'up'
+																? 'up'
+																: 'down'
 														}`}
 														size="md"
 														color="info.600"
