@@ -9,15 +9,16 @@ import { host } from '@configs';
 import { getName, getPricePerAcreage } from '@helpers';
 
 // Interfaces
-import type { IPostCompact } from '@interfaces';
+import type { IPostCompact, IPostType } from '@interfaces';
 
 // Props
 interface Props {
 	data: IPostCompact;
 	isLoaded: boolean;
+	type: IPostType;
 }
 
-const Index: FunctionComponent<Props> = ({ data, isLoaded }) => {
+const Index: FunctionComponent<Props> = ({ data, isLoaded, type }) => {
 	// Props
 	const {
 		acreages,
@@ -90,18 +91,26 @@ const Index: FunctionComponent<Props> = ({ data, isLoaded }) => {
 						<Text fontSize={14} fontWeight="bold" color="info.600">
 							{`${
 								prices < 1000 ? prices : prices / 1000
-							} ${unit}`}
+							} ${unit}${type === 'rent' ? '/Tháng' : ''}`}
 						</Text>
-						<Icon
-							as={MaterialCommunityIcons}
-							name="arrow-left-right-bold"
-							mx={1}
-							size={3}
-							color="info.600"
-						/>
-						<Text fontSize={14} fontWeight="bold" color="info.600">
-							{`${getPricePerAcreage(acreages, prices)}`}
-						</Text>
+						{type === 'sell' && (
+							<>
+								<Icon
+									as={MaterialCommunityIcons}
+									name="arrow-left-right-bold"
+									mx={1}
+									size={3}
+									color="info.600"
+								/>
+								<Text
+									fontSize={14}
+									fontWeight="bold"
+									color="info.600"
+								>
+									{`${getPricePerAcreage(acreages, prices)}`}
+								</Text>
+							</>
+						)}
 					</HStack>
 					{isVideo && (
 						<Box position="absolute" bottom={2} right={2}>
