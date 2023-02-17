@@ -78,7 +78,7 @@ const Index: FunctionComponent<Props> = ({ navigation }) => {
 	const [region, setRegion] = useState<string>();
 
 	// Hooks
-	const { location, onNotification, isNetwork, onLocation } =
+	const { location, onNotification, isNetwork, onLocation, user } =
 		useContext(Context);
 
 	const getDataStorage = useCallback(async (province: string) => {
@@ -315,8 +315,11 @@ const Index: FunctionComponent<Props> = ({ navigation }) => {
 		navigation.navigate('Post', {
 			postID,
 		});
-	const handlePressMenu = (type: IPostType | 'request') =>
+	const handlePressMenu = (type: IPostType | 'request') => {
+		if (!user) return navigation.navigate('Login');
+
 		navigation.navigate('Form', { type });
+	};
 
 	return (
 		<>
