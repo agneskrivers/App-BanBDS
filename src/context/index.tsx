@@ -155,8 +155,6 @@ const Index: FunctionComponent<Props> = ({ children }) => {
 
 				const body: IDevice = { brand, device, mac, model, os };
 
-				console.log(body);
-
 				const result = await services.init(signal, body);
 
 				if (!result) throw new Error();
