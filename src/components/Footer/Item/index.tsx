@@ -41,7 +41,7 @@ const Index: FunctionComponent<Props> = props => {
 			return navigation.navigate('Login');
 
 		if (name === 'Form')
-			return navigation.navigate('Form', { isRequest: false });
+			return navigation.navigate('Form', { type: 'sell' });
 
 		return navigation.navigate(name);
 	};
