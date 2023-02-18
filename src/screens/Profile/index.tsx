@@ -32,6 +32,8 @@ import {
 	Input,
 	Modal,
 	KeyboardAvoidingView,
+	Center,
+	Spinner,
 } from 'native-base';
 import { launchImageLibrary, Asset } from 'react-native-image-picker';
 
@@ -415,6 +417,13 @@ const Index: FunctionComponent<Props> = ({ navigation, route }) => {
 		}
 	};
 	const handlePressUpdateProfile = () => setIsUpdating(true);
+	const handlePressGoBack = () => {
+		if (navigation.canGoBack()) {
+			navigation.goBack();
+		} else {
+			navigation.navigate('Account');
+		}
+	};
 
 	// Validator
 	const avatarValidator: ImageSourcePropType = avatar
@@ -442,7 +451,7 @@ const Index: FunctionComponent<Props> = ({ navigation, route }) => {
 						safeArea
 					>
 						<HStack alignItems="center" bgColor="white">
-							<Pressable>
+							<Pressable onPress={handlePressGoBack}>
 								<Icon
 									as={MaterialIcons}
 									name="arrow-back"
@@ -471,10 +480,16 @@ const Index: FunctionComponent<Props> = ({ navigation, route }) => {
 								}
 							>
 								<HStack alignItems="center">
-									<Avatar
-										source={avatarValidator}
-										size="xl"
-									/>
+									{avatarTemp !== undefined ? (
+										<Center w={24} h={24}>
+											<Spinner size="lg" />
+										</Center>
+									) : (
+										<Avatar
+											source={avatarValidator}
+											size="xl"
+										/>
+									)}
 									<Box
 										ml={4}
 										flex={1}
@@ -634,7 +649,7 @@ const Index: FunctionComponent<Props> = ({ navigation, route }) => {
 							bg="info.500"
 							isDisabled={
 								isUpdating ||
-								(!fullName && !birthday && !address)
+								(!fullName && !birthday && !address && !avatar)
 							}
 							_text={{
 								fontSize: 16,

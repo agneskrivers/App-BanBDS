@@ -151,7 +151,7 @@ const Index: FunctionComponent<Props> = ({ navigation }) => {
 	if (!user) return <LoadingComponent />;
 
 	const avatar: ImageSourcePropType = user.avatar
-		? { uri: `${host}/images/avatar/${user.avatar}` }
+		? { uri: `${host}/images/avatars/${user.avatar}` }
 		: AvatarDefault;
 
 	return (

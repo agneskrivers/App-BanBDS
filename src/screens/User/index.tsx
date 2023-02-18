@@ -380,18 +380,6 @@ const Index: FunctionComponent<Props> = ({ navigation, route }) => {
 		onLogin,
 		onNotification,
 	]);
-	useEffect(() => {
-		Alert.alert('Máy chủ bị lỗi', 'Bạn có muốn thử lại không?', [
-			{
-				text: 'Thử lại',
-				style: 'default',
-			},
-			{
-				text: 'Thoát',
-				onPress: () => navigation.navigate('Home'),
-			},
-		]);
-	}, [navigation]);
 
 	// Handle
 	const _dateTimePickerByAndroid = () => {
