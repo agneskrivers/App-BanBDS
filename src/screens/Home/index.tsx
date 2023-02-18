@@ -408,7 +408,11 @@ const Index: FunctionComponent<Props> = ({ navigation }) => {
 							>
 								<ProjectComponent
 									data={item}
-									isLoaded={projects !== null && isLoaded}
+									isLoaded={
+										projects !== null &&
+										isLoaded &&
+										!isLoading
+									}
 									isFirst={index === 0}
 									isLast={index === 9}
 								/>
@@ -461,7 +465,8 @@ const Index: FunctionComponent<Props> = ({ navigation }) => {
 								isLoaded={
 									posts !== null &&
 									isLoaded &&
-									totals !== null
+									totals !== null &&
+									!isLoading
 								}
 								type="sell"
 							/>
