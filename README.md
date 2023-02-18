@@ -4,8 +4,7 @@ This is the mobile app for the [BanBds](https://github.com/agneskrivers/BanBds) 
 
 ## Demo
 
-[![Demo alpha](https://j.gifs.com/NO60Yp.gif)](https://www.youtube.com/watch?v=OiMRxVndTeU)
-[![Demo alpha](https://j.gifs.com/NO60Yp.gif)](https://www.youtube.com/watch?v=OiMRxVndTeU)
+<img src="https://j.gifs.com/NO60Yp.gif?raw=true" width="200px">
 
 ## Features
 
