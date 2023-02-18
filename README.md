@@ -5,6 +5,7 @@ This is the mobile app for the [BanBds](https://github.com/agneskrivers/BanBds) 
 ## Demo
 
 [![Demo BanBds](https://j.gifs.com/NO60Yp.gif)](https://youtu.be/S7i-A3obB-o)
+[![Demo BanBds](https://j.gifs.com/NO60Yp.gif)](https://youtu.be/S7i-A3obB-o)
 
 ## Features
 
