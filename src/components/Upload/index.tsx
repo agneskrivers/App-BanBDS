@@ -191,7 +191,7 @@ const Index: FunctionComponent<Props> = props => {
 		if (status === 'uploading' && image) {
 			if (isNetwork) {
 				getData(controller.signal, image).catch(() => {
-					setStatus('failed');
+					setStatus('normal');
 					setImage(undefined);
 					setProgress(0);
 
